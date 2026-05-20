@@ -111,6 +111,7 @@ import { isCancelSearchShortcut, isFocusSearchShortcut } from "@/lib/keyboardSho
 import { dataGridHeaderContentWidth, scrollbarGutterWidth } from "@/lib/dataGridScrollGutter";
 import { dataGridSaveActionMode, dataGridSaveToolbarState } from "@/lib/dataGridSaveUi";
 import { appendColumnValueFilterCondition, buildColumnValueFilterCondition } from "@/lib/dataGridColumnFilter";
+import { clampSearchSplitWidth } from "@/lib/dataGridSearchSplit";
 import {
   MAX_RESULT_PAGE_SIZE,
   MIN_RESULT_PAGE_SIZE,
@@ -312,6 +313,18 @@ const orderByInput = ref("");
 const hasOrderByInput = computed(() => orderByInput.value.trim().length > 0);
 const whereFilterInput = ref(props.initialWhereInput ?? "");
 const hasWhereFilterInput = computed(() => whereFilterInput.value.trim().length > 0);
+const searchSplitContainerRef = ref<HTMLDivElement>();
+const searchSplitWhereWidth = ref<number | null>(null);
+const isResizingSearchSplit = ref(false);
+let searchSplitStartX = 0;
+let searchSplitStartWidth = 0;
+
+const whereSearchPaneStyle = computed(() => {
+  if (searchSplitWhereWidth.value == null) return {};
+  return {
+    flex: `0 0 ${searchSplitWhereWidth.value}px`,
+  };
+});
 
 type LocalColumnFilterDraft = {
   columnIndex: number;
@@ -2578,6 +2591,48 @@ function toggleDdlWrap() {
   ddlWrap.value = !ddlWrap.value;
 }
 
+function searchSplitContainerWidth(): number {
+  return searchSplitContainerRef.value?.getBoundingClientRect().width ?? 0;
+}
+
+function onSearchSplitResizeStart(event: MouseEvent) {
+  const containerWidth = searchSplitContainerWidth();
+  if (containerWidth <= 0) return;
+  event.preventDefault();
+  isResizingSearchSplit.value = true;
+  searchSplitStartX = event.clientX;
+  searchSplitStartWidth = clampSearchSplitWidth({
+    containerWidth,
+    desiredWidth: searchSplitWhereWidth.value ?? undefined,
+  });
+  searchSplitWhereWidth.value = searchSplitStartWidth;
+  document.body.classList.add("select-none", "cursor-col-resize");
+  window.addEventListener("mousemove", onSearchSplitResizeMove);
+  window.addEventListener("mouseup", onSearchSplitResizeEnd);
+}
+
+function onSearchSplitResizeMove(event: MouseEvent) {
+  if (!isResizingSearchSplit.value) return;
+  const containerWidth = searchSplitContainerWidth();
+  if (containerWidth <= 0) return;
+  searchSplitWhereWidth.value = clampSearchSplitWidth({
+    containerWidth,
+    desiredWidth: searchSplitStartWidth + event.clientX - searchSplitStartX,
+  });
+}
+
+function onSearchSplitResizeEnd() {
+  isResizingSearchSplit.value = false;
+  document.body.classList.remove("select-none", "cursor-col-resize");
+  window.removeEventListener("mousemove", onSearchSplitResizeMove);
+  window.removeEventListener("mouseup", onSearchSplitResizeEnd);
+}
+
+function resetSearchSplitWidth() {
+  const containerWidth = searchSplitContainerWidth();
+  searchSplitWhereWidth.value = containerWidth > 0 ? clampSearchSplitWidth({ containerWidth }) : null;
+}
+
 function onDdlResizeStart(event: MouseEvent) {
   isResizingDdl.value = true;
   ddlResizeStartX = event.clientX;
@@ -2642,6 +2697,7 @@ watch(
 
 onUnmounted(() => {
   cleanupFrames();
+  onSearchSplitResizeEnd();
   onDdlResizeEnd();
   onDetailResizeEnd();
   finishCellSelection();
@@ -2752,109 +2808,125 @@ defineExpose({
             </template>
 
             <template v-if="canUseWhereSearch">
-              <div class="flex-1 flex items-center gap-1 px-2 py-0.5 border-l min-w-0 relative">
-                <span class="text-blue-600 dark:text-blue-400 text-xs font-medium select-none shrink-0">WHERE</span>
-                <input
-                  ref="whereFilterInputRef"
-                  v-model="whereFilterInput"
-                  autocapitalize="off"
-                  autocorrect="off"
-                  spellcheck="false"
-                  class="flex-1 h-5 min-w-0 text-xs bg-transparent outline-none placeholder:text-muted-foreground/60"
-                  placeholder=""
-                  @keydown="onWhereFilterKeydown"
-                  @click="updateWhereSuggestionPosition"
-                  @blur="dismissWhereSuggestions"
-                />
-                <span
-                  ref="whereMeasureRef"
-                  class="invisible absolute left-0 top-0 text-xs whitespace-pre pointer-events-none"
-                  aria-hidden="true"
-                />
-                <!-- WHERE suggestion dropdown -->
+              <div ref="searchSplitContainerRef" class="flex flex-1 min-w-0">
                 <div
-                  v-if="whereSuggestions.length > 0"
-                  class="absolute top-full mt-0.5 z-50 min-w-[180px] rounded-md border bg-popover text-popover-foreground shadow-md"
-                  :style="{ left: whereSuggestionLeft + 24 + 'px' }"
+                  class="flex flex-1 items-center gap-1 px-2 py-0.5 border-l min-w-0 relative"
+                  :style="whereSearchPaneStyle"
                 >
+                  <span class="text-blue-600 dark:text-blue-400 text-xs font-medium select-none shrink-0">WHERE</span>
+                  <input
+                    ref="whereFilterInputRef"
+                    v-model="whereFilterInput"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    class="flex-1 h-5 min-w-0 text-xs bg-transparent outline-none placeholder:text-muted-foreground/60"
+                    placeholder=""
+                    @keydown="onWhereFilterKeydown"
+                    @click="updateWhereSuggestionPosition"
+                    @blur="dismissWhereSuggestions"
+                  />
+                  <span
+                    ref="whereMeasureRef"
+                    class="invisible absolute left-0 top-0 text-xs whitespace-pre pointer-events-none"
+                    aria-hidden="true"
+                  />
+                  <!-- WHERE suggestion dropdown -->
                   <div
-                    v-for="(sug, idx) in whereSuggestions"
-                    :key="sug"
-                    class="flex items-center px-3 py-1.5 text-xs cursor-pointer"
-                    :class="idx === whereSuggestionIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'"
-                    @mousedown.prevent="
-                      whereSuggestionIndex = idx;
-                      acceptWhereSuggestion();
-                    "
-                    @mouseenter="whereSuggestionIndex = idx"
+                    v-if="whereSuggestions.length > 0"
+                    class="absolute top-full mt-0.5 z-50 min-w-[180px] rounded-md border bg-popover text-popover-foreground shadow-md"
+                    :style="{ left: whereSuggestionLeft + 24 + 'px' }"
                   >
-                    <Search class="w-3 h-3 mr-2 text-muted-foreground shrink-0" />
-                    <span>{{ sug }}</span>
+                    <div
+                      v-for="(sug, idx) in whereSuggestions"
+                      :key="sug"
+                      class="flex items-center px-3 py-1.5 text-xs cursor-pointer"
+                      :class="idx === whereSuggestionIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'"
+                      @mousedown.prevent="
+                        whereSuggestionIndex = idx;
+                        acceptWhereSuggestion();
+                      "
+                      @mouseenter="whereSuggestionIndex = idx"
+                    >
+                      <Search class="w-3 h-3 mr-2 text-muted-foreground shrink-0" />
+                      <span>{{ sug }}</span>
+                    </div>
                   </div>
+                  <button
+                    v-if="hasWhereFilterInput"
+                    class="text-muted-foreground hover:text-foreground shrink-0"
+                    @click="
+                      whereFilterInput = '';
+                      applyWhereFilter();
+                    "
+                  >
+                    <X class="w-3 h-3" />
+                  </button>
                 </div>
                 <button
-                  v-if="hasWhereFilterInput"
-                  class="text-muted-foreground hover:text-foreground shrink-0"
-                  @click="
-                    whereFilterInput = '';
-                    applyWhereFilter();
-                  "
+                  type="button"
+                  class="group relative flex w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-border/80 bg-muted/15 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  aria-label="Resize WHERE and ORDER BY"
+                  @mousedown="onSearchSplitResizeStart"
+                  @dblclick.stop="resetSearchSplitWidth"
                 >
-                  <X class="w-3 h-3" />
+                  <span class="h-5 w-px bg-border group-hover:bg-primary/60" />
                 </button>
-              </div>
-              <div class="flex-1 flex items-center gap-1 px-2 py-0.5 border-l border-r min-w-0 relative">
-                <span class="text-orange-600 dark:text-orange-400 text-xs font-medium select-none shrink-0"
-                  >ORDER BY</span
-                >
-                <input
-                  ref="orderByInputRef"
-                  v-model="orderByInput"
-                  autocapitalize="off"
-                  autocorrect="off"
-                  spellcheck="false"
-                  class="flex-1 h-5 min-w-0 text-xs bg-transparent outline-none placeholder:text-muted-foreground/60"
-                  placeholder=""
-                  @keydown="onOrderByKeydown"
-                  @click="updateOrderBySuggestionPosition"
-                  @blur="dismissOrderBySuggestions"
-                />
-                <span
-                  ref="orderByMeasureRef"
-                  class="invisible absolute left-0 top-0 text-xs whitespace-pre pointer-events-none"
-                  aria-hidden="true"
-                />
-                <!-- ORDER BY suggestion dropdown -->
-                <div
-                  v-if="orderBySuggestions.length > 0"
-                  class="absolute top-full mt-0.5 z-50 min-w-[180px] rounded-md border bg-popover text-popover-foreground shadow-md"
-                  :style="{ left: orderBySuggestionLeft + 24 + 'px' }"
-                >
-                  <div
-                    v-for="(sug, idx) in orderBySuggestions"
-                    :key="sug"
-                    class="flex items-center px-3 py-1.5 text-xs cursor-pointer"
-                    :class="idx === orderBySuggestionIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'"
-                    @mousedown.prevent="
-                      orderBySuggestionIndex = idx;
-                      acceptOrderBySuggestion();
-                    "
-                    @mouseenter="orderBySuggestionIndex = idx"
+                <div class="flex flex-1 items-center gap-1 px-2 py-0.5 border-r min-w-0 relative">
+                  <span class="text-orange-600 dark:text-orange-400 text-xs font-medium select-none shrink-0"
+                    >ORDER BY</span
                   >
-                    <Search class="w-3 h-3 mr-2 text-muted-foreground shrink-0" />
-                    <span>{{ sug }}</span>
+                  <input
+                    ref="orderByInputRef"
+                    v-model="orderByInput"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    class="flex-1 h-5 min-w-0 text-xs bg-transparent outline-none placeholder:text-muted-foreground/60"
+                    placeholder=""
+                    @keydown="onOrderByKeydown"
+                    @click="updateOrderBySuggestionPosition"
+                    @blur="dismissOrderBySuggestions"
+                  />
+                  <span
+                    ref="orderByMeasureRef"
+                    class="invisible absolute left-0 top-0 text-xs whitespace-pre pointer-events-none"
+                    aria-hidden="true"
+                  />
+                  <!-- ORDER BY suggestion dropdown -->
+                  <div
+                    v-if="orderBySuggestions.length > 0"
+                    class="absolute top-full mt-0.5 z-50 min-w-[180px] rounded-md border bg-popover text-popover-foreground shadow-md"
+                    :style="{ left: orderBySuggestionLeft + 24 + 'px' }"
+                  >
+                    <div
+                      v-for="(sug, idx) in orderBySuggestions"
+                      :key="sug"
+                      class="flex items-center px-3 py-1.5 text-xs cursor-pointer"
+                      :class="
+                        idx === orderBySuggestionIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+                      "
+                      @mousedown.prevent="
+                        orderBySuggestionIndex = idx;
+                        acceptOrderBySuggestion();
+                      "
+                      @mouseenter="orderBySuggestionIndex = idx"
+                    >
+                      <Search class="w-3 h-3 mr-2 text-muted-foreground shrink-0" />
+                      <span>{{ sug }}</span>
+                    </div>
                   </div>
+                  <button
+                    v-if="hasOrderByInput"
+                    class="text-muted-foreground hover:text-foreground shrink-0"
+                    @click="
+                      orderByInput = '';
+                      applyOrderBySearch();
+                    "
+                  >
+                    <X class="w-3 h-3" />
+                  </button>
                 </div>
-                <button
-                  v-if="hasOrderByInput"
-                  class="text-muted-foreground hover:text-foreground shrink-0"
-                  @click="
-                    orderByInput = '';
-                    applyOrderBySearch();
-                  "
-                >
-                  <X class="w-3 h-3" />
-                </button>
               </div>
             </template>
 

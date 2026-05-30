@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Package version to publish, for example 0.4.3"
+        description: "Package version to publish, for example 0.4.4"
         required: true
 
 permissions:
@@ -12,9 +12,12 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
-    name: Publish CLI and MCP packages
+  prepare:
+    name: Prepare package release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v4
@@ -86,18 +89,8 @@ jobs:
           writeJson(serverPath, server);
 
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=packages-v${version}\n`);
           NODE
-
-      - name: Check npm versions are new
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          for PACKAGE in @dbx-app/node-core @dbx-app/cli @dbx-app/mcp-server; do
-            if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
-              echo "::error::${PACKAGE}@${VERSION} already exists on npm."
-              exit 1
-            fi
-          done
 
       - name: Run package tests
         run: pnpm test:packages
@@ -114,31 +107,123 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           git add packages/node-core/package.json packages/cli/package.json packages/mcp-server/package.json packages/mcp-server/server.json
-          git commit -m "chore(packages): release ${VERSION} [skip node-packages-release]"
-          git tag "packages-v${VERSION}"
+          if git diff --cached --quiet; then
+            echo "Package versions already committed for ${VERSION}."
+          else
+            git commit -m "chore(packages): release ${VERSION} [skip node-packages-release]"
+          fi
+
+      - name: Create package release tag
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists."
+          else
+            git tag "${TAG}"
+          fi
 
       - name: Push package release commit and tag
         env:
           RELEASE_TOKEN: ${{ secrets.MCP_RELEASE_TOKEN }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
           if [ -n "${RELEASE_TOKEN}" ]; then
             git remote set-url origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           fi
           git push origin HEAD:main
-          git push origin "packages-v${VERSION}"
+          git push origin "refs/tags/${TAG}:refs/tags/${TAG}"
+
+  publish-node-core:
+    name: Publish node-core
+    runs-on: ubuntu-latest
+    needs: prepare
+    outputs:
+      published-or-existing: ${{ steps.publish.outputs.published_or_existing }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Publish Node core
+        id: publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm --filter @dbx-app/node-core publish --access public --provenance --no-git-checks
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if npm view "@dbx-app/node-core@${VERSION}" version >/dev/null 2>&1; then
+            echo "@dbx-app/node-core@${VERSION} already exists on npm; skipping."
+            echo "published_or_existing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pnpm --filter @dbx-app/node-core publish --access public --provenance --no-git-checks
+          echo "published_or_existing=true" >> "$GITHUB_OUTPUT"
 
-      - name: Publish CLI
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm --filter @dbx-app/cli publish --access public --provenance --no-git-checks
+  publish-leaf-packages:
+    name: Publish ${{ matrix.package-name }}
+    runs-on: ubuntu-latest
+    needs: [prepare, publish-node-core]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package-name: "@dbx-app/cli"
+            filter: "@dbx-app/cli"
+          - package-name: "@dbx-app/mcp-server"
+            filter: "@dbx-app/mcp-server"
 
-      - name: Publish MCP server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm --filter @dbx-app/mcp-server publish --access public --provenance --no-git-checks
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PACKAGE_NAME: ${{ matrix.package-name }}
+          PACKAGE_FILTER: ${{ matrix.filter }}
+        run: |
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${VERSION} already exists on npm; skipping."
+            exit 0
+          fi
+          pnpm --filter "${PACKAGE_FILTER}" publish --access public --provenance --no-git-checks

@@ -5201,7 +5201,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                           autocapitalize="off"
                           autocorrect="off"
                           spellcheck="false"
-                          class="cell-edit-input absolute inset-0 bg-background border-2 border-primary px-2 py-0.5 text-xs outline-none z-10"
+                          class="cell-edit-input absolute inset-0 bg-background border-2 border-primary px-2 py-0 text-xs leading-[26px] outline-none z-10"
                           @blur="commitEdit"
                           @click.stop
                           @keydown.stop="onEditKeydown"
@@ -5856,7 +5856,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                           autocapitalize="off"
                           autocorrect="off"
                           spellcheck="false"
-                          class="cell-edit-input absolute inset-0 bg-background border-2 border-primary px-2 py-0.5 text-xs outline-none z-10"
+                          class="cell-edit-input absolute inset-0 bg-background border-2 border-primary px-2.5 py-0 text-xs leading-[22px] outline-none z-10"
                           @blur="commitEdit"
                           @click.stop
                           @keydown.stop="onEditKeydown"
@@ -6414,26 +6414,45 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
     <!-- Bottom status bar -->
     <div
       v-if="!isErrorResult"
-      class="flex items-center gap-2 px-3 py-1 border-t text-xs text-muted-foreground bg-muted/30 shrink-0"
+      class="grid grid-cols-[minmax(0,1fr)_minmax(0,38%)_minmax(0,1fr)] items-center gap-2 px-3 py-1 border-t text-xs text-muted-foreground bg-muted/30 shrink-0"
     >
-      <span v-if="hasData">
-        {{ t("grid.totalRows", { count: result.rows.length }) }}
-        <span v-if="typeof totalRowCount === 'number' && totalRowCount > 0" class="text-muted-foreground/70">{{
-          t("grid.totalRowCount", { count: totalRowCount })
-        }}</span>
-      </span>
-      <span v-if="showTruncationWarning" class="text-amber-500 text-xs ml-1">(truncated)</span>
-      <span v-if="!hasData">{{ t("grid.rowsAffected", { count: result.affected_rows }) }}</span>
-      <span>{{ result.execution_time_ms }}ms</span>
-      <span v-if="selectedRowCount > 0 || hasCellSelection" class="text-foreground">{{ selectionSummary }}</span>
-
-      <template v-if="editable && (tableMeta || customSave)">
-        <span v-if="hasPendingChanges" class="ml-2 text-foreground">
-          {{ t("grid.pendingChanges", { count: pendingChangeCount }) }}
+      <div class="flex min-w-0 items-center gap-2 overflow-hidden">
+        <span v-if="hasData" class="shrink-0">
+          {{ t("grid.totalRows", { count: result.rows.length }) }}
+          <span v-if="typeof totalRowCount === 'number' && totalRowCount > 0" class="text-muted-foreground/70">{{
+            t("grid.totalRowCount", { count: totalRowCount })
+          }}</span>
         </span>
-      </template>
+        <span v-if="showTruncationWarning" class="shrink-0 text-amber-500 text-xs">(truncated)</span>
+        <span v-if="!hasData" class="shrink-0">{{ t("grid.rowsAffected", { count: result.affected_rows }) }}</span>
+        <span class="shrink-0">{{ result.execution_time_ms }}ms</span>
+        <span v-if="selectedRowCount > 0 || hasCellSelection" class="min-w-0 truncate text-foreground">
+          {{ selectionSummary }}
+        </span>
 
-      <span class="ml-auto flex items-center gap-1">
+        <template v-if="editable && (tableMeta || customSave)">
+          <span v-if="hasPendingChanges" class="shrink-0 text-foreground">
+            {{ t("grid.pendingChanges", { count: pendingChangeCount }) }}
+          </span>
+        </template>
+      </div>
+
+      <Tooltip v-if="sqlOneLiner">
+        <TooltipTrigger as-child>
+          <span
+            class="min-w-0 max-w-full justify-self-center truncate opacity-60 cursor-pointer hover:opacity-100"
+            @click="copySql"
+          >
+            {{ sqlOneLiner }}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" class="max-w-md">
+          <pre class="text-xs font-mono whitespace-pre-wrap">{{ props.sql }}</pre>
+        </TooltipContent>
+      </Tooltip>
+      <span v-else class="min-w-0" />
+
+      <div class="flex min-w-0 items-center justify-end gap-1">
         <Loader2 v-if="loading" class="w-3 h-3 animate-spin text-muted-foreground" />
         <LightDropdown
           :model-value="String(pageSize)"
@@ -6487,33 +6506,21 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
         <Button variant="ghost" size="icon" class="h-5 w-5" :disabled="!canJumpLastPage" @click="lastPage">
           <ChevronsRight class="h-3 w-3" />
         </Button>
-      </span>
-
-      <LightDropdown
-        model-value=""
-        :items="exportMenuItems"
-        :aria-label="t('grid.export')"
-        :trigger-icon="Download"
-        trigger-class="inline-flex h-5 w-5 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground"
-        trigger-icon-class="h-3 w-3"
-        :show-trigger-label="false"
-        :show-chevron="false"
-        :highlight-selected="false"
-        check-position="none"
-        align="end"
-        @update:model-value="selectExportMenuItem"
-      />
-
-      <Tooltip v-if="sqlOneLiner">
-        <TooltipTrigger as-child>
-          <span class="truncate max-w-[30%] opacity-60 cursor-pointer hover:opacity-100" @click="copySql">
-            {{ sqlOneLiner }}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" class="max-w-md">
-          <pre class="text-xs font-mono whitespace-pre-wrap">{{ props.sql }}</pre>
-        </TooltipContent>
-      </Tooltip>
+        <LightDropdown
+          model-value=""
+          :items="exportMenuItems"
+          :aria-label="t('grid.export')"
+          :trigger-icon="Download"
+          trigger-class="inline-flex h-6 w-6 items-center justify-center rounded-md text-foreground/80 hover:bg-accent hover:text-accent-foreground"
+          trigger-icon-class="h-3.5 w-3.5"
+          :show-trigger-label="false"
+          :show-chevron="false"
+          :highlight-selected="false"
+          check-position="none"
+          align="end"
+          @update:model-value="selectExportMenuItem"
+        />
+      </div>
     </div>
 
     <Dialog v-model:open="cellDetailDialogOpen">

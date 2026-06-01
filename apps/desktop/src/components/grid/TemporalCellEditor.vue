@@ -35,7 +35,7 @@ const displayValue = computed(() => props.modelValue || "NULL");
 const triggerClass = computed(() =>
   props.variant === "inline"
     ? "cell-edit-input flex h-9 w-full items-center gap-2 rounded border bg-background px-2 text-left text-xs outline-none hover:border-primary/60 focus:border-primary"
-    : "cell-edit-input absolute inset-0 z-10 flex items-center gap-1 border-2 border-primary bg-background px-2 py-0.5 text-left text-xs outline-none",
+    : "cell-edit-input absolute inset-0 z-10 flex items-center gap-1 border-2 border-primary bg-background px-2.5 py-0 text-left text-xs outline-none",
 );
 const dateParts = computed(() => {
   const text = formatTemporalInputValue(props.modelValue, "date");

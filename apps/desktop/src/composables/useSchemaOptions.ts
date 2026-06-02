@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { useConnectionStore } from "@/stores/connectionStore";
-import { isSchemaAware as isSchemaAwareType, isSingleDatabase } from "@/lib/databaseCapabilities";
+import { isSchemaAware as isSchemaAwareType, isSingleDatabase, usesTreeSchemaMode } from "@/lib/databaseCapabilities";
 import * as api from "@/lib/api";
 
 export function hasSchemaOptionsCacheEntry(options: Record<string, string[]>, key: string): boolean {
@@ -24,7 +24,7 @@ export function useSchemaOptions() {
   async function loadSchemaOptions(connectionId: string, database: string) {
     if (!isSchemaAware(connectionId)) return;
     const dbType = connectionStore.getConfig(connectionId)?.db_type;
-    if (!database && !isSingleDatabase(dbType)) return;
+    if (!database && !isSingleDatabase(dbType) && !usesTreeSchemaMode(dbType)) return;
     const key = cacheKey(connectionId, database);
     if (hasSchemaOptionsCacheEntry(schemaOptions.value, key)) return;
     if (loadingSchemaOptions.value[key]) return;

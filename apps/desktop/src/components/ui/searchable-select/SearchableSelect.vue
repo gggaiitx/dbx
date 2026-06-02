@@ -43,7 +43,7 @@ const listContainer = ref<HTMLDivElement>();
 const highlightIndex = ref(-1);
 
 const selectedLabel = computed(() => {
-  if (!props.modelValue) return props.placeholder;
+  if (!props.modelValue && !props.options.includes("")) return props.placeholder;
   return props.displayName(props.modelValue);
 });
 

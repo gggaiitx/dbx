@@ -211,6 +211,16 @@
       "defaultPort": 8000
     },
     {
+      "dbType": "kwdb",
+      "label": "KWDB",
+      "runtimeMode": "native",
+      "mcpMode": "direct",
+      "singleConnectionPool": false,
+      "metadataConnectionScoped": false,
+      "skipTcpProbe": false,
+      "defaultPort": 26257
+    },
+    {
       "dbType": "yashandb",
       "label": "崖山 YashanDB",
       "runtimeMode": "agent",

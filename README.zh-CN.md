@@ -33,6 +33,7 @@
     <img src="https://img.shields.io/badge/OceanBase-006AFF?logoColor=white" />
     <img src="https://img.shields.io/badge/openGauss-2B7BD9?logoColor=white" />
     <img src="https://img.shields.io/badge/GaussDB-E60012?logoColor=white" />
+    <img src="https://img.shields.io/badge/KWDB-1c60e0?logoColor=white" />
     <img src="https://img.shields.io/badge/KingBase-003B8E?logoColor=white" />
     <img src="https://img.shields.io/badge/TDengine-2F6FFF?logoColor=white" />
     <img src="https://img.shields.io/badge/CockroachDB-6933FF?logoColor=white" />
@@ -85,7 +86,7 @@
 
 ### 40+ 种数据库，一个工具搞定
 
-MySQL、PostgreSQL、SQLite、Redis、MongoDB、DuckDB、ClickHouse、SQL Server、Oracle、Elasticsearch、MariaDB、TiDB、OceanBase、openGauss、GaussDB、KingBase、Vastbase、GoldenDB、Doris、SelectDB、StarRocks、Redshift、DM、TDengine、虚谷 XuguDB、CockroachDB、Access、HighGo 等数据库都能直接连接。Agent/JDBC 方向的配置还可扩展到 H2、Snowflake、Trino、Hive、DB2、Informix、Neo4j、Cassandra、BigQuery、Kylin、SunDB 和自定义 JDBC。全部装进约 15 MB 的应用里，不内嵌 Chromium。
+MySQL、PostgreSQL、SQLite、Redis、MongoDB、DuckDB、ClickHouse、SQL Server、Oracle、Elasticsearch、MariaDB、TiDB、OceanBase、openGauss、GaussDB、KWDB、KingBase、Vastbase、GoldenDB、Doris、SelectDB、StarRocks、Redshift、DM、TDengine、虚谷 XuguDB、CockroachDB、Access、HighGo 等数据库都能直接连接。Agent/JDBC 方向的配置还可扩展到 H2、Snowflake、Trino、Hive、DB2、Informix、Neo4j、Cassandra、BigQuery、Kylin、SunDB 和自定义 JDBC。全部装进约 15 MB 的应用里，不内嵌 Chromium。
 
 ### 查询编辑器
 
@@ -293,7 +294,7 @@ DBX 仅 15 MB，无需运行时依赖（无需 Java、无需 Python）。AI 和 
 
 <details>
 <summary><strong>支持哪些数据库？</strong></summary>
-MySQL、PostgreSQL、SQLite、Redis、MongoDB、DuckDB、ClickHouse、SQL Server、Oracle、Elasticsearch、MariaDB、TiDB、OceanBase、openGauss、GaussDB、KingBase、Vastbase、GoldenDB、Doris、SelectDB、StarRocks、Redshift、DM、TDengine、虚谷 XuguDB、CockroachDB、Access、HighGo 等。JDBC 方向配置可扩展到 H2、Snowflake、Trino、Hive、DB2、Informix、Neo4j、Cassandra、BigQuery、Kylin、SunDB 及自定义 JDBC 连接。
+MySQL、PostgreSQL、SQLite、Redis、MongoDB、DuckDB、ClickHouse、SQL Server、Oracle、Elasticsearch、MariaDB、TiDB、OceanBase、openGauss、GaussDB、KWDB、KingBase、Vastbase、GoldenDB、Doris、SelectDB、StarRocks、Redshift、DM、TDengine、虚谷 XuguDB、CockroachDB、Access、HighGo 等。JDBC 方向配置可扩展到 H2、Snowflake、Trino、Hive、DB2、Informix、Neo4j、Cassandra、BigQuery、Kylin、SunDB 及自定义 JDBC 连接。
 </details>
 
 <details>

@@ -183,6 +183,14 @@ test("uses Navicat-style table editing defaults for updateable SQL table engines
     requiresTransactionalTableForExistingRows: false,
     transaction: true,
   });
+  assert.deepEqual(getDatabaseCapability("kwdb").tableData, {
+    insert: true,
+    updateRequiresPrimaryKey: false,
+    deleteRequiresPrimaryKey: false,
+    keylessRowPredicate: true,
+    requiresTransactionalTableForExistingRows: false,
+    transaction: true,
+  });
 });
 
 test("keeps conservative table editing defaults for unknown database types", () => {
@@ -210,6 +218,7 @@ test("describes feature support through capability helpers", () => {
   assert.equal(supportsTableStructureEditing("oracle"), true);
   assert.equal(supportsTableStructureEditing("dameng"), true);
   assert.equal(supportsTableStructureEditing("gaussdb"), true);
+  assert.equal(supportsTableStructureEditing("kwdb"), true);
   assert.equal(supportsTableStructureEditing("opengauss"), true);
   assert.equal(supportsTableStructureEditing("redshift"), true);
   assert.equal(supportsTableStructureEditing("clickhouse"), true);
@@ -218,12 +227,15 @@ test("describes feature support through capability helpers", () => {
   assert.equal(supportsDatabaseCreation("clickhouse"), true);
   assert.equal(supportsDatabaseCreation("sqlite"), false);
   assert.equal(supportsFieldLineage("gaussdb"), true);
+  assert.equal(supportsFieldLineage("kwdb"), true);
   assert.equal(supportsFieldLineage("trino"), false);
   assert.equal(supportsTransfer("duckdb"), true);
   assert.equal(supportsTransfer("hive"), false);
   assert.equal(supportsDriverManagement("oracle"), true);
   assert.equal(supportsDriverManagement("mysql"), false);
+  assert.equal(supportsDriverManagement("kwdb"), false);
   assert.equal(usesPostgresLikeStructureCopy("gaussdb"), true);
+  assert.equal(usesPostgresLikeStructureCopy("kwdb"), true);
   assert.equal(usesPostgresLikeStructureCopy("mysql"), false);
   assert.equal(supportsObjectBrowser("mysql"), true);
   assert.equal(supportsObjectBrowser("mongodb"), false);

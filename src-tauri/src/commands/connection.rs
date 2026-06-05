@@ -290,15 +290,17 @@ pub async fn test_connection(state: State<'_, Arc<AppState>>, config: Connection
                     Err(e) => Err(e),
                 }
             }
-            DatabaseType::Postgres | DatabaseType::Redshift | DatabaseType::Gaussdb | DatabaseType::OpenGauss => {
-                match db::postgres::connect(&url, connect_timeout).await {
-                    Ok(pool) => {
-                        pool.close();
-                        Ok("Connection successful".to_string())
-                    }
-                    Err(e) => Err(e),
+            DatabaseType::Postgres
+            | DatabaseType::Redshift
+            | DatabaseType::Gaussdb
+            | DatabaseType::Kwdb
+            | DatabaseType::OpenGauss => match db::postgres::connect(&url, connect_timeout).await {
+                Ok(pool) => {
+                    pool.close();
+                    Ok("Connection successful".to_string())
                 }
-            }
+                Err(e) => Err(e),
+            },
             DatabaseType::Sqlite => {
                 let extensions = db::sqlite::sqlite_extension_specs_from_url_params(config.url_params.as_deref())
                     .into_iter()
@@ -457,9 +459,11 @@ pub async fn connect_db(state: State<'_, Arc<AppState>>, config: ConnectionConfi
             connect_bare_metadata_pool(&db_config, &host, port, connect_timeout).await?,
             MysqlMode::Bare,
         ),
-        DatabaseType::Postgres | DatabaseType::Redshift | DatabaseType::Gaussdb | DatabaseType::OpenGauss => {
-            PoolKind::Postgres(db::postgres::connect(&url, connect_timeout).await?)
-        }
+        DatabaseType::Postgres
+        | DatabaseType::Redshift
+        | DatabaseType::Gaussdb
+        | DatabaseType::Kwdb
+        | DatabaseType::OpenGauss => PoolKind::Postgres(db::postgres::connect(&url, connect_timeout).await?),
         DatabaseType::Sqlite => {
             let extensions = db::sqlite::sqlite_extension_specs_from_url_params(db_config.url_params.as_deref())
                 .into_iter()

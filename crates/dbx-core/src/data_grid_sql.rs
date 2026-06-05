@@ -1242,6 +1242,7 @@ fn uses_keyless_row_predicate(database_type: Option<DatabaseType>) -> bool {
                 | DatabaseType::Redshift
                 | DatabaseType::Dameng
                 | DatabaseType::Gaussdb
+                | DatabaseType::Kwdb
                 | DatabaseType::Kingbase
                 | DatabaseType::Highgo
                 | DatabaseType::Vastbase

@@ -48,6 +48,7 @@ const profileMap: Record<string, ConnectionProfile> = {
   dameng: { dbType: "dameng", profile: "dm", label: "DM (Dameng)", port: 5236, user: "SYSDBA" },
   dm: { dbType: "dameng", profile: "dm", label: "DM (Dameng)", port: 5236, user: "SYSDBA" },
   gaussdb: { dbType: "gaussdb", profile: "gaussdb", label: "GaussDB", port: 5432, user: "gaussdb" },
+  kwdb: { dbType: "kwdb", profile: "kwdb", label: "KWDB", port: 26257, user: "root" },
   opengauss: { dbType: "gaussdb", profile: "opengauss", label: "openGauss", port: 5432, user: "gaussdb" },
 };
 

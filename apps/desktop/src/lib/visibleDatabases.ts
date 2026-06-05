@@ -8,6 +8,7 @@ const SYSTEM_DATABASE_RULES: Partial<Record<DatabaseType, ReadonlySet<string>>> 
   gbase: new Set(["information_schema", "mysql", "performance_schema", "sys"]),
   postgres: new Set(["template0", "template1"]),
   gaussdb: new Set(["template0", "template1"]),
+  kwdb: new Set(["template0", "template1"]),
   opengauss: new Set(["template0", "template1"]),
   kingbase: new Set(["template0", "template1"]),
   highgo: new Set(["template0", "template1"]),

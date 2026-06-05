@@ -85,6 +85,7 @@ fn classifies_agent_database_types() {
     assert!(!is_agent_type(&DatabaseType::Mysql));
     assert!(!is_agent_type(&DatabaseType::Jdbc));
     assert!(!is_agent_type(&DatabaseType::Gaussdb));
+    assert!(!is_agent_type(&DatabaseType::Kwdb));
     assert!(!is_agent_type(&DatabaseType::OpenGauss));
 }
 
@@ -102,6 +103,7 @@ fn identifies_single_connection_pool_types() {
     assert!(is_single_connection_pool(&DatabaseType::Jdbc));
     assert!(!is_single_connection_pool(&DatabaseType::Trino));
     assert!(!is_single_connection_pool(&DatabaseType::Postgres));
+    assert!(!is_single_connection_pool(&DatabaseType::Kwdb));
 }
 
 #[test]
@@ -110,6 +112,7 @@ fn identifies_metadata_connections_that_drop_database_scope() {
     assert!(!is_metadata_connection_scoped(&DatabaseType::Doris));
     assert!(!is_metadata_connection_scoped(&DatabaseType::StarRocks));
     assert!(!is_metadata_connection_scoped(&DatabaseType::Postgres));
+    assert!(!is_metadata_connection_scoped(&DatabaseType::Kwdb));
     assert!(!is_metadata_connection_scoped(&DatabaseType::Oracle));
 }
 
@@ -129,6 +132,7 @@ fn skips_tcp_probe_for_local_file_plugin_and_agent_types() {
     assert!(!skips_tcp_probe(&DatabaseType::Postgres));
     assert!(!skips_tcp_probe(&DatabaseType::Mysql));
     assert!(!skips_tcp_probe(&DatabaseType::Gaussdb));
+    assert!(!skips_tcp_probe(&DatabaseType::Kwdb));
     assert!(!skips_tcp_probe(&DatabaseType::OpenGauss));
 }
 

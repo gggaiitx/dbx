@@ -329,9 +329,11 @@ impl AppState {
                 };
                 PoolKind::Mysql(pool, MysqlMode::Bare)
             }
-            DatabaseType::Postgres | DatabaseType::Redshift | DatabaseType::Gaussdb | DatabaseType::OpenGauss => {
-                PoolKind::Postgres(db::postgres::connect(&url, connect_timeout).await?)
-            }
+            DatabaseType::Postgres
+            | DatabaseType::Redshift
+            | DatabaseType::Gaussdb
+            | DatabaseType::Kwdb
+            | DatabaseType::OpenGauss => PoolKind::Postgres(db::postgres::connect(&url, connect_timeout).await?),
             DatabaseType::Sqlite => {
                 let extensions = db::sqlite::sqlite_extension_specs_from_url_params(db_config.url_params.as_deref())
                     .into_iter()
@@ -1011,9 +1013,10 @@ fn external_driver_connect_timeout(config: &ConnectionConfig) -> std::time::Dura
 
 fn native_postgres_url_config(config: &ConnectionConfig) -> Option<ConnectionConfig> {
     match config.db_type {
-        DatabaseType::Gaussdb | DatabaseType::OpenGauss => {
+        DatabaseType::Gaussdb | DatabaseType::Kwdb | DatabaseType::OpenGauss => {
             let mut normalized = config.clone();
-            if config.db_type == DatabaseType::Gaussdb {
+            normalized.database = normalized.effective_database().map(str::to_string);
+            if matches!(config.db_type, DatabaseType::Gaussdb | DatabaseType::Kwdb) {
                 let params = normalized.url_params.as_deref().unwrap_or("").trim().trim_start_matches('?');
                 if !params.to_lowercase().contains("sslmode=") {
                     normalized.url_params = Some(if params.is_empty() {
@@ -1124,6 +1127,7 @@ mod tests {
     use crate::agent_manager::{AgentState, JavaRuntimeConfig, JavaRuntimeMode, DEFAULT_JRE_KEY};
     use crate::db;
     use crate::models::connection::{default_connect_timeout_secs, ConnectionConfig, DatabaseType, ProxyType};
+    use crate::query;
     use crate::schema;
     use crate::storage::Storage;
 
@@ -1614,6 +1618,39 @@ mod tests {
     }
 
     #[test]
+    fn kwdb_endpoint_url_uses_postgres_scheme_for_native_driver() {
+        let mut config = mysql_config(None);
+        config.db_type = DatabaseType::Kwdb;
+        config.username = "root".to_string();
+        config.password = "secret".to_string();
+        config.port = 26257;
+
+        assert_eq!(
+            connection_url_for_endpoint(&config, &config.host, config.port),
+            "postgres://root:secret@127.0.0.1:26257/defaultdb?sslmode=disable"
+        );
+        assert_eq!(
+            redacted_connection_url_for_endpoint(&config, &config.host, config.port),
+            "postgres://127.0.0.1:26257/defaultdb?sslmode=disable"
+        );
+    }
+
+    #[test]
+    fn kwdb_endpoint_url_keeps_explicit_sslmode() {
+        let mut config = mysql_config(None);
+        config.db_type = DatabaseType::Kwdb;
+        config.username = "root".to_string();
+        config.password = "secret".to_string();
+        config.port = 26257;
+        config.url_params = Some("sslmode=require&application_name=dbx".to_string());
+
+        assert_eq!(
+            connection_url_for_endpoint(&config, &config.host, config.port),
+            "postgres://root:secret@127.0.0.1:26257/defaultdb?sslmode=require&application_name=dbx"
+        );
+    }
+
+    #[test]
     fn opengauss_endpoint_url_uses_postgres_scheme_for_native_driver() {
         let mut config = mysql_config(Some("postgres"));
         config.db_type = DatabaseType::OpenGauss;
@@ -1739,6 +1776,7 @@ mod tests {
             DatabaseType::ClickHouse,
             DatabaseType::SqlServer,
             DatabaseType::Elasticsearch,
+            DatabaseType::Kwdb,
         ] {
             let mut config = mysql_config(Some("app"));
             config.db_type = db_type;
@@ -1932,5 +1970,122 @@ mod tests {
             url_params.as_deref(),
         ))
         .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a reachable KWDB instance via environment variables"]
+    async fn live_kwdb_native_connection_succeeds() {
+        let host = std::env::var("DBX_TEST_KWDB_HOST").expect("DBX_TEST_KWDB_HOST not set");
+        let port = std::env::var("DBX_TEST_KWDB_PORT")
+            .expect("DBX_TEST_KWDB_PORT not set")
+            .parse::<u16>()
+            .expect("DBX_TEST_KWDB_PORT should be a u16");
+        let username = std::env::var("DBX_TEST_KWDB_USER").unwrap_or_else(|_| "root".to_string());
+        let password = std::env::var("DBX_TEST_KWDB_PASSWORD").unwrap_or_default();
+        let database = std::env::var("DBX_TEST_KWDB_DATABASE").unwrap_or_else(|_| "defaultdb".to_string());
+        let url_params = std::env::var("DBX_TEST_KWDB_URL_PARAMS").unwrap_or_else(|_| "sslmode=disable".to_string());
+
+        let mut config = mysql_config(Some(&database));
+        config.id = "kwdb-live".to_string();
+        config.db_type = DatabaseType::Kwdb;
+        config.host = host;
+        config.port = port;
+        config.username = username;
+        config.password = password;
+        config.url_params = Some(url_params);
+
+        let (state, dir) = test_app_state().await;
+        state.configs.write().await.insert(config.id.clone(), config);
+        let pool_key = state.get_or_create_pool("kwdb-live", None).await.unwrap();
+        let pool = {
+            let connections = state.connections.read().await;
+            match connections.get(&pool_key).expect("KWDB pool should be created") {
+                PoolKind::Postgres(pool) => pool.clone(),
+                _ => panic!("KWDB should use the PostgreSQL pool path"),
+            }
+        };
+        let result = query::execute_sql_statement(
+            &state,
+            "kwdb-live",
+            &database,
+            "SELECT current_database(), current_schema()",
+            None,
+            None,
+        )
+        .await
+        .unwrap_or_else(|err| panic!("failed to query live KWDB: {err}"));
+        assert_eq!(result.rows.len(), 1);
+        let database_column_index = result
+            .columns
+            .iter()
+            .position(|column| column == "current_database")
+            .expect("current_database column should be present");
+        assert_eq!(result.rows[0].get(database_column_index).and_then(|value| value.as_str()), Some(database.as_str()));
+        let databases = schema::list_databases_core(&state, "kwdb-live").await.unwrap();
+        assert!(databases.iter().any(|database| database.name == "defaultdb"));
+        let test_schema = "dbx_kwdb_live";
+        db::postgres::execute_query(&pool, &format!("DROP SCHEMA IF EXISTS {test_schema} CASCADE"))
+            .await
+            .unwrap_or_else(|err| panic!("failed to clean KWDB test schema: {err}"));
+        query::execute_sql_statement(
+            &state,
+            "kwdb-live",
+            &database,
+            &format!("CREATE SCHEMA {test_schema}"),
+            None,
+            None,
+        )
+        .await
+        .unwrap_or_else(|err| panic!("failed to create KWDB test schema: {err}"));
+        query::execute_sql_statement(
+            &state,
+            "kwdb-live",
+            &database,
+            "CREATE TABLE devices (id INT PRIMARY KEY, name STRING, active BOOL)",
+            Some(test_schema),
+            None,
+        )
+        .await
+        .unwrap_or_else(|err| panic!("failed to create KWDB test table: {err}"));
+        query::execute_sql_statement(
+            &state,
+            "kwdb-live",
+            &database,
+            "INSERT INTO devices (id, name, active) VALUES (1, 'meter-a', true)",
+            Some(test_schema),
+            None,
+        )
+        .await
+        .unwrap_or_else(|err| panic!("failed to insert KWDB test row: {err}"));
+        let query_result = query::execute_sql_statement(
+            &state,
+            "kwdb-live",
+            &database,
+            "SELECT name, active FROM devices WHERE id = 1",
+            Some(test_schema),
+            None,
+        )
+        .await
+        .unwrap_or_else(|err| panic!("failed to query KWDB test row: {err}"));
+        assert_eq!(query_result.rows.len(), 1);
+        assert_eq!(query_result.rows[0].first().and_then(|value| value.as_str()), Some("meter-a"));
+
+        let schemas = schema::list_schemas_core(&state, "kwdb-live", &database).await.unwrap();
+        assert!(schemas.iter().any(|schema| schema == test_schema));
+        let tables = schema::list_tables_core(&state, "kwdb-live", &database, test_schema, None, None).await.unwrap();
+        assert!(tables.iter().any(|table| table.name == "devices" && table.table_type == "BASE TABLE"));
+        let columns = schema::get_columns_core(&state, "kwdb-live", &database, test_schema, "devices").await.unwrap();
+        let id_column = columns.iter().find(|column| column.name == "id").expect("id column should be listed");
+        assert!(id_column.data_type.to_lowercase().contains("int"));
+        let name_column = columns.iter().find(|column| column.name == "name").expect("name column should be listed");
+        assert!(name_column.data_type.to_lowercase().contains("text"));
+        let active_column =
+            columns.iter().find(|column| column.name == "active").expect("active column should be listed");
+        assert!(active_column.data_type.to_lowercase().contains("bool"));
+        db::postgres::execute_query(&pool, &format!("DROP SCHEMA {test_schema} CASCADE"))
+            .await
+            .unwrap_or_else(|err| panic!("failed to drop KWDB test schema: {err}"));
+        pool.close();
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

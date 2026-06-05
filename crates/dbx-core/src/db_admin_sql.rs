@@ -174,6 +174,7 @@ pub fn build_drop_table_child_object_sql(options: DropTableChildObjectSqlOptions
                 Some(
                     DatabaseType::Postgres
                         | DatabaseType::Gaussdb
+                        | DatabaseType::Kwdb
                         | DatabaseType::OpenGauss
                         | DatabaseType::Highgo
                         | DatabaseType::Vastbase
@@ -203,6 +204,7 @@ pub fn build_drop_table_child_object_sql(options: DropTableChildObjectSqlOptions
                 Some(
                     DatabaseType::Postgres
                         | DatabaseType::Gaussdb
+                        | DatabaseType::Kwdb
                         | DatabaseType::OpenGauss
                         | DatabaseType::Highgo
                         | DatabaseType::Vastbase
@@ -254,7 +256,7 @@ pub fn build_create_schema_sql(options: SchemaNameSqlOptions) -> String {
 
 pub fn build_drop_schema_sql(options: SchemaNameSqlOptions) -> String {
     let schema = quote_table_identifier(options.database_type, &options.name);
-    if matches!(options.database_type, Some(DatabaseType::Postgres | DatabaseType::Gaussdb)) {
+    if matches!(options.database_type, Some(DatabaseType::Postgres | DatabaseType::Gaussdb | DatabaseType::Kwdb)) {
         format!("DROP SCHEMA {schema} CASCADE;")
     } else {
         format!("DROP SCHEMA {schema};")
@@ -359,6 +361,7 @@ fn is_postgres_like_rename(database_type: DatabaseType) -> bool {
         DatabaseType::Postgres
             | DatabaseType::Redshift
             | DatabaseType::Gaussdb
+            | DatabaseType::Kwdb
             | DatabaseType::Kingbase
             | DatabaseType::Highgo
             | DatabaseType::Vastbase
@@ -372,7 +375,11 @@ fn is_oracle_like_rename(database_type: DatabaseType) -> bool {
 fn is_postgres_like_structure_copy(database_type: DatabaseType) -> bool {
     matches!(
         database_type,
-        DatabaseType::Postgres | DatabaseType::Redshift | DatabaseType::Gaussdb | DatabaseType::OpenGauss
+        DatabaseType::Postgres
+            | DatabaseType::Redshift
+            | DatabaseType::Gaussdb
+            | DatabaseType::Kwdb
+            | DatabaseType::OpenGauss
     )
 }
 
@@ -564,7 +571,7 @@ mod tests {
         );
         assert_eq!(
             build_drop_schema_sql(SchemaNameSqlOptions {
-                database_type: Some(DatabaseType::Gaussdb),
+                database_type: Some(DatabaseType::Kwdb),
                 name: "analytics".to_string(),
             }),
             "DROP SCHEMA \"analytics\" CASCADE;"
@@ -654,7 +661,7 @@ mod tests {
         );
         assert_eq!(
             build_duplicate_table_structure_sql(DuplicateTableStructureSqlOptions {
-                database_type: Some(DatabaseType::Postgres),
+                database_type: Some(DatabaseType::Kwdb),
                 schema: Some("public".to_string()),
                 source_name: "users".to_string(),
                 target_name: "users_copy".to_string(),

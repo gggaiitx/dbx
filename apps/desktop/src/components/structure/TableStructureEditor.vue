@@ -307,6 +307,7 @@ function isPostgresIdentityType(dbType: string | undefined): boolean {
   return (
     dbType === "postgres" ||
     dbType === "gaussdb" ||
+    dbType === "kwdb" ||
     dbType === "opengauss" ||
     dbType === "highgo" ||
     dbType === "vastbase" ||

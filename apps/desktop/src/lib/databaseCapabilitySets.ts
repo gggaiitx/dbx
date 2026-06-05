@@ -7,6 +7,7 @@ export const SCHEMA_AWARE_TYPES = new Set<DatabaseType>([
   "redshift",
   "dameng",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",
@@ -43,6 +44,7 @@ export const DIAGRAM_SUPPORTED_TYPES = new Set<DatabaseType>([
   "redshift",
   "dameng",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",
@@ -75,6 +77,7 @@ export const DATABASE_SEARCH_SUPPORTED_TYPES = new Set<DatabaseType>([
   "clickhouse",
   "dameng",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",
@@ -120,6 +123,7 @@ export const TABLE_IMPORT_SUPPORTED_TYPES = new Set<DatabaseType>([
   "redshift",
   "dameng",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",
@@ -142,6 +146,7 @@ export const TABLE_STRUCTURE_SUPPORTED_TYPES = new Set<DatabaseType>([
   "redshift",
   "dameng",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",
@@ -162,6 +167,7 @@ export const CREATE_DATABASE_SUPPORTED_TYPES = new Set<DatabaseType>([
   "oracle",
   "dameng",
   "gaussdb",
+  "kwdb",
   "opengauss",
   "oceanbase-oracle",
   "doris",
@@ -179,6 +185,7 @@ export const FIELD_LINEAGE_SUPPORTED_TYPES = new Set<DatabaseType>([
   "redshift",
   "dameng",
   "gaussdb",
+  "kwdb",
   "opengauss",
   "oceanbase-oracle",
 ]);
@@ -199,6 +206,7 @@ export const TREE_SCHEMA_TYPES = new Set<DatabaseType>([
   "sqlserver",
   "db2",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",
@@ -222,7 +230,7 @@ export const TREE_SCHEMA_TYPES = new Set<DatabaseType>([
 
 export const DATABASE_OBJECT_TREE_TYPES = new Set<DatabaseType>(["jdbc"]);
 
-export const PG_LIKE_STRUCTURE_TYPES = new Set<DatabaseType>(["postgres", "redshift", "gaussdb", "opengauss"]);
+export const PG_LIKE_STRUCTURE_TYPES = new Set<DatabaseType>(["postgres", "redshift", "gaussdb", "kwdb", "opengauss"]);
 
 export const AGENT_DRIVER_TYPES = new Set<DatabaseType>([
   "dameng",
@@ -270,6 +278,7 @@ export const TRANSFER_SQL_TYPES = new Set<DatabaseType>([
   "duckdb",
   "dameng",
   "gaussdb",
+  "kwdb",
   "opengauss",
   "oceanbase-oracle",
 ]);
@@ -284,6 +293,7 @@ export const DIAGRAM_SQL_TYPES = new Set<DatabaseType>([
   "redshift",
   "dameng",
   "gaussdb",
+  "kwdb",
   "opengauss",
   "oceanbase-oracle",
 ]);

@@ -15,6 +15,7 @@ const postgresLikeRenameTypes = new Set<DatabaseType>([
   "postgres",
   "redshift",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",

@@ -281,6 +281,7 @@ const driverProfiles: Record<
     icon: "opengauss",
   },
   gaussdb: { type: "gaussdb", port: 5432, user: "gaussdb", label: "GaussDB", icon: "gaussdb" },
+  kwdb: { type: "kwdb", port: 26257, user: "root", label: "KWDB", icon: "kwdb" },
   kingbase: { type: "kingbase", port: 54321, user: "system", label: "KingBase", icon: "kingbase" },
   highgo: { type: "highgo", port: 5866, user: "highgo", label: "瀚高 HighGo", icon: "highgo" },
   yashandb: { type: "yashandb", port: 1688, user: "sys", label: "崖山 YashanDB", icon: "yashandb" },
@@ -532,6 +533,7 @@ const sshPathSegments = computed(() => {
 function defaultDatabaseForProfile() {
   if (form.value.db_type === "redshift") return "dev";
   if (form.value.db_type === "gaussdb") return "postgres";
+  if (form.value.db_type === "kwdb") return "defaultdb";
   if (selectedType.value === "cockroachdb") return "defaultdb";
   if (form.value.db_type === "highgo") return "highgo";
   if (form.value.db_type === "yashandb") return "yasdb";
@@ -580,6 +582,7 @@ const iconTypeMap: Record<string, string> = {
   gbase: "gbase",
   opengauss: "opengauss",
   gaussdb: "gaussdb",
+  kwdb: "kwdb",
   kingbase: "kingbase",
   highgo: "highgo",
   yashandb: "yashandb",
@@ -625,6 +628,7 @@ const dbOptions = [
   { value: "mariadb", label: "MariaDB" },
   { value: "dm", label: "DM (Dameng)" },
   { value: "gaussdb", label: "GaussDB" },
+  { value: "kwdb", label: "KWDB" },
   { value: "tidb", label: "TiDB" },
   { value: "oceanbase", label: "OceanBase" },
   { value: "goldendb", label: "GoldenDB" },
@@ -710,6 +714,7 @@ const tlsCapableDatabaseTypes = new Set<DatabaseType>([
   "postgres",
   "redshift",
   "gaussdb",
+  "kwdb",
   "opengauss",
   "redis",
   "clickhouse",
@@ -742,7 +747,7 @@ const mysqlClientKeyPath = computed({
     form.value.url_params = setUrlParam(next, "ssl-key", value);
   },
 });
-const nativePostgresTlsDatabaseTypes = new Set<DatabaseType>(["postgres", "redshift", "gaussdb", "opengauss"]);
+const nativePostgresTlsDatabaseTypes = new Set<DatabaseType>(["postgres", "redshift", "gaussdb", "kwdb", "opengauss"]);
 const supportsPostgresTlsOptions = computed(() => nativePostgresTlsDatabaseTypes.has(form.value.db_type));
 const postgresTlsMode = computed({
   get: () => {

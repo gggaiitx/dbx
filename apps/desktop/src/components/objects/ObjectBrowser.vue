@@ -181,6 +181,7 @@ const sourceDialect = computed<"mysql" | "postgres" | "sqlserver">(() => {
   if (
     effectiveDatabaseType.value === "postgres" ||
     effectiveDatabaseType.value === "gaussdb" ||
+    effectiveDatabaseType.value === "kwdb" ||
     effectiveDatabaseType.value === "opengauss"
   )
     return "postgres";
@@ -192,10 +193,12 @@ const sourceFormatDialect = computed<SqlFormatDialect>(() => {
     case "mysql":
     case "postgres":
     case "sqlite":
-    case "rqlite":
     case "sqlserver":
       return effectiveDatabaseType.value;
+    case "rqlite":
+      return "sqlite";
     case "gaussdb":
+    case "kwdb":
     case "opengauss":
       return "postgres";
     default:

@@ -11,6 +11,7 @@ export const DIRECT_QUERY_TYPES = [
   "sqlite",
   "rqlite",
   "gaussdb",
+  "kwdb",
   "opengauss",
 ] as const;
 

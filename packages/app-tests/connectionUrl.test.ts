@@ -17,6 +17,21 @@ test("parses postgres connection URLs", () => {
   });
 });
 
+test("parses KWDB connection URLs", () => {
+  assert.deepEqual(parseConnectionUrl("kwdb://root:secret@kw.example.com/defaultdb?sslmode=require"), {
+    dbType: "kwdb",
+    driverProfile: "kwdb",
+    driverLabel: "KWDB",
+    host: "kw.example.com",
+    port: 26257,
+    username: "root",
+    password: "secret",
+    database: "defaultdb",
+    urlParams: "sslmode=require",
+    ssl: true,
+  });
+});
+
 test("parses mysql URLs with encoded credentials", () => {
   const parsed = parseConnectionUrl("mysql://root:p%40ss@127.0.0.1/shop?charset=utf8mb4");
 

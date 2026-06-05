@@ -41,6 +41,7 @@ const SCHEME_PROFILES: Record<string, ConnectionProfile> = {
   dm: { type: "dameng", profile: "dm", label: "DM (Dameng)", defaultPort: 5236 },
   dameng: { type: "dameng", profile: "dm", label: "DM (Dameng)", defaultPort: 5236 },
   gaussdb: { type: "gaussdb", profile: "gaussdb", label: "GaussDB", defaultPort: 5432 },
+  kwdb: { type: "kwdb", profile: "kwdb", label: "KWDB", defaultPort: 26257 },
   gbase: { type: "gbase", profile: "gbase", label: "GBase", defaultPort: 5258 },
   "gbasedbt-sqli": { type: "gbase", profile: "gbase8s", label: "GBase 8s", defaultPort: 9088 },
   yashandb: { type: "yashandb", profile: "yashandb", label: "YashanDB", defaultPort: 1688 },
@@ -143,7 +144,7 @@ function urlParamsRequireTls(dbType: DatabaseType, params: string): boolean {
     return sslMode === "required" || sslMode === "require" || sslMode === "verify_ca" || sslMode === "verify_identity";
   }
 
-  if (dbType === "postgres" || dbType === "redshift") {
+  if (dbType === "postgres" || dbType === "redshift" || dbType === "kwdb") {
     const sslMode = (queryParamValue(params, "sslmode") || "").toLowerCase();
     return sslMode === "require" || sslMode === "verify-ca" || sslMode === "verify-full";
   }

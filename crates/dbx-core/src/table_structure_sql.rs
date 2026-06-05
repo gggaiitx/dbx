@@ -211,6 +211,7 @@ fn capabilities_for(database_type: Option<DatabaseType>) -> TableStructureCapabi
         Some(
             DatabaseType::Postgres
             | DatabaseType::Gaussdb
+            | DatabaseType::Kwdb
             | DatabaseType::OpenGauss
             | DatabaseType::Highgo
             | DatabaseType::Vastbase

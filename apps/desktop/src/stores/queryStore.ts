@@ -689,7 +689,7 @@ export const useQueryStore = defineStore("query", () => {
     const dbType = conn?.db_type || "";
     let schema = analysis.schema || tab.schema;
     if (!schema) {
-      if (dbType === "postgres") schema = "public";
+      if (dbType === "postgres" || dbType === "kwdb") schema = "public";
       else schema = "";
     }
     const metadataSchema =

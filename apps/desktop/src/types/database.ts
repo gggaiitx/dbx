@@ -19,6 +19,7 @@ export type DatabaseType =
   | "highgo"
   | "vastbase"
   | "goldendb"
+  | "kwdb"
   | "yashandb"
   | "databricks"
   | "saphana"

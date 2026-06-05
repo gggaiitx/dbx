@@ -156,6 +156,7 @@ const activeSqlFormatDialect = computed<SqlFormatDialect>(() => {
     case "mysql":
       return "mysql";
     case "postgres":
+    case "kwdb":
       return "postgres";
     case "sqlite":
     case "rqlite":
@@ -168,7 +169,8 @@ const activeSqlFormatDialect = computed<SqlFormatDialect>(() => {
 });
 
 const editorDialect = computed<"mysql" | "postgres" | "sqlserver">(() => {
-  if (activeEffectiveDatabaseType.value === "postgres") return "postgres";
+  if (activeEffectiveDatabaseType.value === "postgres" || activeEffectiveDatabaseType.value === "kwdb")
+    return "postgres";
   if (activeEffectiveDatabaseType.value === "sqlserver") return "sqlserver";
   return "mysql";
 });

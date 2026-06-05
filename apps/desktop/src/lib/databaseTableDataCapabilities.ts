@@ -58,6 +58,7 @@ const NAVICAT_STYLE_TABLE_DATA_TYPES = new Set<DatabaseType>([
   "redshift",
   "dameng",
   "gaussdb",
+  "kwdb",
   "kingbase",
   "highgo",
   "vastbase",

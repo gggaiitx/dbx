@@ -29,6 +29,7 @@ const assetIcons: Record<string, string> = {
   oceanbase: "oceanbase",
   opengauss: "opengauss",
   gaussdb: "gaussdb",
+  kwdb: "kwdb",
   kingbase: "kingbase",
   highgo: "highgo.png",
   goldendb: "goldendb.png",

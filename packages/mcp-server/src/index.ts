@@ -46,7 +46,7 @@ function formatQueryToolResult(result: QueryResult, title?: string) {
 }
 
 export const DBX_CONNECTION_TYPE_DESCRIPTION =
-  "Database type: postgres, mysql, sqlite, rqlite, redis, duckdb, clickhouse, sqlserver, mongodb, oracle, elasticsearch, doris, starrocks, redshift, dameng, kingbase, highgo, vastbase, goldendb, gaussdb, yashandb, databricks, saphana, teradata, vertica, firebird, exasol, opengauss, oceanbase-oracle, gbase, h2, snowflake, trino, hive, db2, informix, iris, neo4j, cassandra, bigquery, kylin, sundb, tdengine, xugu, jdbc, access";
+  "Database type: postgres, mysql, sqlite, rqlite, redis, duckdb, clickhouse, sqlserver, mongodb, oracle, elasticsearch, doris, starrocks, redshift, dameng, kingbase, highgo, vastbase, goldendb, gaussdb, kwdb, yashandb, databricks, saphana, teradata, vertica, firebird, exasol, opengauss, oceanbase-oracle, gbase, h2, snowflake, trino, hive, db2, informix, iris, neo4j, cassandra, bigquery, kylin, sundb, tdengine, xugu, jdbc, access";
 
 export function createDbxMcpServer(backend: Backend, options: { isWebMode?: boolean } = {}): McpServer {
   const isWebMode = options.isWebMode ?? !!process.env.DBX_WEB_URL;
@@ -181,7 +181,7 @@ export function createDbxMcpServer(backend: Backend, options: { isWebMode?: bool
       const existing = await backend.findConnection(name);
       if (existing) return text(`Connection "${name}" already exists.`);
       const FILE_BASED_TYPES = new Set(["sqlite", "duckdb", "access"]);
-      const DEFAULT_PORTS: Record<string, number> = { rqlite: 4001, tdengine: 6041, xugu: 5138 };
+      const DEFAULT_PORTS: Record<string, number> = { kwdb: 26257, rqlite: 4001, tdengine: 6041, xugu: 5138 };
       const resolvedPort = port ?? DEFAULT_PORTS[db_type] ?? (FILE_BASED_TYPES.has(db_type) ? 0 : undefined);
       if (resolvedPort === undefined) return text("Port is required for this database type.");
       const config = await backend.addConnection({

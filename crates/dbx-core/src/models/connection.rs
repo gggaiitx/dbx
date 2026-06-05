@@ -193,6 +193,7 @@ pub enum DatabaseType {
     Vastbase,
     Goldendb,
     Gaussdb,
+    Kwdb,
     Yashandb,
     Databricks,
     #[serde(rename = "saphana")]
@@ -304,6 +305,7 @@ impl ConnectionConfig {
             DatabaseType::ClickHouse => Some("default"),
             DatabaseType::Rqlite => Some("main"),
             DatabaseType::Gaussdb | DatabaseType::OpenGauss => Some("postgres"),
+            DatabaseType::Kwdb => Some("defaultdb"),
             DatabaseType::Kingbase | DatabaseType::Vastbase => Some("postgres"),
             DatabaseType::Highgo => Some("highgo"),
             DatabaseType::Yashandb => Some("yasdb"),
@@ -424,6 +426,7 @@ impl ConnectionConfig {
             DatabaseType::Vastbase => format!("vastbase://{host}:{port}{db_part}"),
             DatabaseType::Goldendb => format!("goldendb://{host}:{port}{db_part}"),
             DatabaseType::Gaussdb => format!("gaussdb://{host}:{port}{db_part}"),
+            DatabaseType::Kwdb => format!("kwdb://{host}:{port}{db_part}"),
             DatabaseType::Yashandb => format!("yashandb://{host}:{port}{db_part}"),
             DatabaseType::Databricks => format!("databricks://{host}:{port}{db_part}"),
             DatabaseType::SapHana => format!("saphana://{host}:{port}{db_part}"),
@@ -548,6 +551,9 @@ impl ConnectionConfig {
             }
             DatabaseType::Gaussdb => {
                 format!("gaussdb://{}:{}@{host}:{port}{db_part}", username, password)
+            }
+            DatabaseType::Kwdb => {
+                format!("kwdb://{}:{}@{host}:{port}{db_part}", username, password)
             }
             DatabaseType::Yashandb => {
                 format!("yashandb://{}:{}@{host}:{port}{db_part}", username, password)
@@ -1616,6 +1622,14 @@ mod tests {
         config.db_type = DatabaseType::Gaussdb;
 
         assert_eq!(config.connection_url(), "gaussdb://gaussdb:secret@10.1.2.3:2883/postgres");
+    }
+
+    #[test]
+    fn kwdb_url_defaults_to_defaultdb_database() {
+        let mut config = mysql_config("root", "secret", None);
+        config.db_type = DatabaseType::Kwdb;
+
+        assert_eq!(config.connection_url(), "kwdb://root:secret@10.1.2.3:2883/defaultdb");
     }
 
     #[test]

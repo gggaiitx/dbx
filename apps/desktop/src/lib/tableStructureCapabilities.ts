@@ -216,6 +216,7 @@ const capabilityByType: Partial<Record<DatabaseType, TableStructureCapabilities>
   sundb: mysqlCapabilities,
   postgres: postgresCapabilities,
   gaussdb: postgresCapabilities,
+  kwdb: postgresCapabilities,
   opengauss: postgresCapabilities,
   redshift: redshiftCapabilities,
   highgo: postgresCapabilities,

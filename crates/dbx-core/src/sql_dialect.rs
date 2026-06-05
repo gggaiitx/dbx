@@ -345,6 +345,7 @@ pub fn is_schema_aware(database_type: DatabaseType) -> bool {
             | DatabaseType::Redshift
             | DatabaseType::Dameng
             | DatabaseType::Gaussdb
+            | DatabaseType::Kwdb
             | DatabaseType::Kingbase
             | DatabaseType::Highgo
             | DatabaseType::Vastbase
@@ -408,6 +409,7 @@ mod tests {
     #[test]
     fn qualifies_schema_only_for_schema_aware_databases() {
         assert_eq!(qualified_table_name(Some(DatabaseType::Postgres), Some("public"), "users"), "\"public\".\"users\"");
+        assert_eq!(qualified_table_name(Some(DatabaseType::Kwdb), Some("public"), "users"), "\"public\".\"users\"");
         assert_eq!(qualified_table_name(Some(DatabaseType::Mysql), Some("public"), "users"), "`users`");
         assert_eq!(qualified_table_name(Some(DatabaseType::Jdbc), Some("cbsdw_dwd"), "dwd_test_df"), "dwd_test_df");
     }

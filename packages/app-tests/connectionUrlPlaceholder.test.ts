@@ -8,6 +8,7 @@ const expected: Record<string, string> = {
   starrocks: "mysql://user:password@host:port/database",
   postgres: "postgresql://user:password@host:port/database",
   gaussdb: "postgresql://user:password@host:port/database",
+  kwdb: "postgresql://user:password@host:port/database",
   redshift: "postgresql://user:password@host:port/database",
   redis: "redis://:password@host:port/0",
   sqlite: "sqlite:///absolute/path/to/database.db",
@@ -45,6 +46,7 @@ test("mysql-family types share the same placeholder", () => {
 test("postgres-family types share the same placeholder", () => {
   const postgres = connectionUrlPlaceholder("postgres");
   assert.equal(connectionUrlPlaceholder("gaussdb"), postgres);
+  assert.equal(connectionUrlPlaceholder("kwdb"), postgres);
   assert.equal(connectionUrlPlaceholder("redshift"), postgres);
 });
 

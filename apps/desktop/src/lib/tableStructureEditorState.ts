@@ -237,6 +237,7 @@ const DATA_TYPE_OPTION_ALIASES: Partial<Record<DatabaseType, string>> = {
   goldendb: "mysql",
   sundb: "mysql",
   gaussdb: "postgres",
+  kwdb: "postgres",
   opengauss: "postgres",
   redshift: "postgres",
   highgo: "postgres",
@@ -298,6 +299,7 @@ export function parseExtraToColumnExtra(extra: string | null | undefined, databa
   } else if (
     databaseType === "postgres" ||
     databaseType === "gaussdb" ||
+    databaseType === "kwdb" ||
     databaseType === "opengauss" ||
     databaseType === "highgo" ||
     databaseType === "vastbase" ||
@@ -405,6 +407,7 @@ function isTemporalPrecisionType(dbType: DatabaseType | undefined, baseType: str
       return ["time", "datetime", "timestamp"].includes(normalized);
     case "postgres":
     case "gaussdb":
+    case "kwdb":
     case "opengauss":
     case "highgo":
     case "vastbase":

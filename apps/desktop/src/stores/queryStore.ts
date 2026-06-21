@@ -38,6 +38,7 @@ import { decodeQueryResultArchive, encodeQueryResultArchive, type DecodedQueryRe
 import * as api from "@/lib/api";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { useSavedSqlStore } from "@/stores/savedSqlStore";
 import type { SavedSqlFile } from "@/types/database";
 
 const STORAGE_KEY = "dbx-open-tabs";
@@ -942,6 +943,22 @@ export const useQueryStore = defineStore("query", () => {
     tab.resultSortedSql = undefined;
     clearExplain(tab);
     tab.tableMeta = undefined;
+
+    // Sync connection change back to the saved SQL file if this tab is linked
+    if (tab.savedSqlId) {
+      const savedSqlStore = useSavedSqlStore();
+      const existing = savedSqlStore.getFile(tab.savedSqlId);
+      if (existing) {
+        void savedSqlStore.saveFile({
+          id: existing.id,
+          connectionId,
+          name: existing.name,
+          database,
+          schema: existing.schema,
+          sql: existing.sql,
+        });
+      }
+    }
   }
 
   function setTableMeta(id: string, meta: NonNullable<QueryTab["tableMeta"]>) {

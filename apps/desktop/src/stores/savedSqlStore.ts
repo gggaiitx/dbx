@@ -196,6 +196,7 @@ export const useSavedSqlStore = defineStore("savedSql", () => {
           database: input.database,
           schema: input.schema,
           sql: input.sql,
+          connectionId: input.connectionId,
           updatedAt: timestamp,
         }
       : {

@@ -2358,7 +2358,7 @@ export const useConnectionStore = defineStore("connection", () => {
       await ensureConnected(connectionId);
       const pageSize = settingsStore.editorSettings.redisScanPageSize;
       // Bounded multi-round SCAN: trade coverage for latency/memory safety.
-      const result = await api.redisScanKeysBatch(connectionId, Number(database), 0, "*", pageSize, 6);
+      const result = await api.redisScanKeysBatch(connectionId, Number(database), 0, "*", pageSize, 6, false);
       const keys = result.keys.map((key) => key.key_display).slice(0, REDIS_COMPLETION_KEYS_MAX);
       redisCompletionKeysCache.value[cacheKey] = keys;
       evictOldestCacheEntries(redisCompletionKeysCache.value, COMPLETION_CACHE_MAX);

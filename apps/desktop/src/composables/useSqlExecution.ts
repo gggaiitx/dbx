@@ -5,7 +5,7 @@ import { useHistoryStore } from "@/stores/historyStore";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useToast } from "@/composables/useToast";
-import { isSingleDatabase } from "@/lib/database/databaseCapabilities";
+import { isSingleDatabase, usesTreeSchemaMode } from "@/lib/database/databaseCapabilities";
 import { canExecuteWithoutSelectedDatabase } from "@/lib/connection/connectionLevelDatabaseBootstrap";
 import { classifySqlActivityKind } from "@/lib/history/historyActivityKind";
 import { sqlMetadataRefreshTarget } from "@/lib/sql/sqlMetadataRefresh";
@@ -229,7 +229,9 @@ function supportsSqlTemplateParameters(connection: ConnectionConfig | undefined)
 
 export function requiresDatabaseSelection(tab: QueryTab, connection: ConnectionConfig | undefined, sql = ""): boolean {
   if (tab.mode !== "query") return false;
-  if (!connection || tab.database) return false;
+  if (!connection) return false;
+  if (tab.database) return false;
+  if (tab.database === "" && usesTreeSchemaMode(connection.db_type)) return false;
   if (isSingleDatabase(connection.db_type)) return false;
   if (canExecuteWithoutSelectedDatabase(connection, sql)) return false;
   return !["elasticsearch", "qdrant", "milvus", "weaviate", "chromadb", "zookeeper"].includes(connection.db_type);

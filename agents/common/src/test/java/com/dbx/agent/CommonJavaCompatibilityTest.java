@@ -334,7 +334,7 @@ class CommonJavaCompatibilityTest {
 
         assertEquals(2L, result.getAffected_rows());
         assertEquals(
-            Arrays.asList("supportsTransactions", "setSchema:APP", "executeUpdate:UPDATE A SET ID = 1", "executeUpdate:UPDATE B SET ID = 2"),
+            Arrays.asList("supportsTransactions", "execute:SET SCHEMA \"APP\"", "executeUpdate:UPDATE A SET ID = 1", "executeUpdate:UPDATE B SET ID = 2"),
             calls
         );
     }

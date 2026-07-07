@@ -44,6 +44,11 @@ impl MySqlQueryDialect {
     }
 }
 
+pub enum MySqlQueryStreamItem {
+    Columns { columns: Vec<String>, column_types: Vec<String> },
+    Row(Vec<serde_json::Value>),
+}
+
 fn quote_value(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
 }
@@ -2481,29 +2486,55 @@ pub async fn stream_query_rows(
     mut on_row: impl FnMut(&[serde_json::Value]) -> Result<(), String>,
 ) -> Result<u64, String> {
     let mut conn = get_conn_with_health_check(pool).await?;
+    stream_query_result_on_conn(&mut conn, sql, bare, max_rows, dialect, cancelled, |item| {
+        if let MySqlQueryStreamItem::Row(row) = item {
+            on_row(&row)?;
+        }
+        Ok(())
+    })
+    .await
+}
+
+pub async fn stream_query_result_on_conn(
+    conn: &mut mysql_async::Conn,
+    sql: &str,
+    bare: bool,
+    max_rows: Option<usize>,
+    dialect: MySqlQueryDialect,
+    cancelled: &AtomicBool,
+    mut on_item: impl FnMut(MySqlQueryStreamItem) -> Result<(), String>,
+) -> Result<u64, String> {
     let row_limit = max_rows.unwrap_or(usize::MAX);
 
     if bare || prefers_text_protocol_query(sql, dialect) {
-        stream_query_rows_text(&mut conn, sql, row_limit, cancelled, &mut on_row).await
+        stream_query_result_text(conn, sql, row_limit, cancelled, &mut on_item).await
     } else {
-        match stream_query_rows_prepared(&mut conn, sql, row_limit, cancelled, &mut on_row).await {
+        match stream_query_result_prepared(conn, sql, row_limit, cancelled, &mut on_item).await {
             Ok(rows) => Ok(rows),
             Err(err) if mysql_error_should_retry_with_text_protocol(&err) => {
-                stream_query_rows_text(&mut conn, sql, row_limit, cancelled, &mut on_row).await
+                stream_query_result_text(conn, sql, row_limit, cancelled, &mut on_item).await
             }
             Err(err) => Err(err),
         }
     }
 }
 
-async fn stream_query_rows_text(
+async fn stream_query_result_text(
     conn: &mut mysql_async::Conn,
     sql: &str,
     row_limit: usize,
     cancelled: &AtomicBool,
-    on_row: &mut impl FnMut(&[serde_json::Value]) -> Result<(), String>,
+    on_item: &mut impl FnMut(MySqlQueryStreamItem) -> Result<(), String>,
 ) -> Result<u64, String> {
     let mut result = conn.query_iter(sql).await.map_err(|e| e.to_string())?;
+    if !advance_to_result_set_with_columns(&mut result).await? {
+        return Ok(0);
+    }
+    let columns: Vec<String> = result.columns_ref().iter().map(|c| c.name_str().to_string()).collect();
+    let column_types: Vec<String> =
+        result.columns_ref().iter().map(|c| mysql_column_type_name(c.column_type())).collect();
+    on_item(MySqlQueryStreamItem::Columns { columns, column_types })?;
+
     let mut stream = result
         .stream::<mysql_async::Row>()
         .await
@@ -2520,21 +2551,29 @@ async fn stream_query_rows_text(
         }
         let row = row.map_err(|e| e.to_string())?;
         let values: Vec<serde_json::Value> = (0..row.len()).map(|i| mysql_value_to_json(&row, i)).collect();
-        on_row(&values)?;
+        on_item(MySqlQueryStreamItem::Row(values))?;
         rows_exported += 1;
     }
 
     Ok(rows_exported)
 }
 
-async fn stream_query_rows_prepared(
+async fn stream_query_result_prepared(
     conn: &mut mysql_async::Conn,
     sql: &str,
     row_limit: usize,
     cancelled: &AtomicBool,
-    on_row: &mut impl FnMut(&[serde_json::Value]) -> Result<(), String>,
+    on_item: &mut impl FnMut(MySqlQueryStreamItem) -> Result<(), String>,
 ) -> Result<u64, String> {
     let mut result = conn.exec_iter(sql, ()).await.map_err(|e| e.to_string())?;
+    let columns: Vec<String> = result.columns_ref().iter().map(|c| c.name_str().to_string()).collect();
+    if columns.is_empty() {
+        return Ok(0);
+    }
+    let column_types: Vec<String> =
+        result.columns_ref().iter().map(|c| mysql_column_type_name(c.column_type())).collect();
+    on_item(MySqlQueryStreamItem::Columns { columns, column_types })?;
+
     let mut stream = result
         .stream::<mysql_async::Row>()
         .await
@@ -2551,7 +2590,7 @@ async fn stream_query_rows_prepared(
         }
         let row = row.map_err(|e| e.to_string())?;
         let values: Vec<serde_json::Value> = (0..row.len()).map(|i| mysql_value_to_json(&row, i)).collect();
-        on_row(&values)?;
+        on_item(MySqlQueryStreamItem::Row(values))?;
         rows_exported += 1;
     }
 

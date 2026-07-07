@@ -168,9 +168,18 @@ public final class StandardJdbcMetadata {
             Set<String> primaryKeys = primaryKeys(meta, null, schema, table);
             List<ColumnInfo> result = new ArrayList<>();
             appendColumns(result, meta, null, schema, table, primaryKeys);
-            if (result.isEmpty() && profile.getCatalogFallbackEnabled() && !configuredDatabase.trim().isEmpty()) {
+            boolean needsFallback = result.isEmpty() || (primaryKeys.isEmpty() && profile.getCatalogFallbackEnabled() && configuredDatabase != null && !configuredDatabase.trim().isEmpty());
+            if (needsFallback) {
                 Set<String> fallbackPrimaryKeys = primaryKeys(meta, configuredDatabase, schema, table);
-                appendColumns(result, meta, configuredDatabase, schema, table, fallbackPrimaryKeys);
+                if (result.isEmpty()) {
+                    appendColumns(result, meta, configuredDatabase, schema, table, fallbackPrimaryKeys);
+                } else if (!fallbackPrimaryKeys.isEmpty()) {
+                    for (ColumnInfo column : result) {
+                        if (fallbackPrimaryKeys.contains(column.getName())) {
+                            column.setIs_primary_key(true);
+                        }
+                    }
+                }
             }
             return result;
         });

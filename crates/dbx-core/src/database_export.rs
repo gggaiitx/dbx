@@ -7,9 +7,9 @@ use tokio::sync::RwLock;
 use crate::models::connection::DatabaseType;
 use crate::sql_dialect::{qualified_table_name, quote_table_identifier, uses_single_row_insert_statements};
 use crate::transfer::{
-    format_ch_array_sql_literal, format_pg_array_sql_literal, is_identity_column_extra, quote_identifier,
-    selected_columns_include_identity_extras, wrap_dameng_identity_insert_sql,
-    wrap_dameng_identity_insert_sql_for_table,
+    format_ch_array_sql_literal, format_pg_array_sql_literal, is_identity_column_extra,
+    is_postgres_family_target, quote_identifier, selected_columns_include_identity_extras,
+    wrap_dameng_identity_insert_sql, wrap_dameng_identity_insert_sql_for_table,
 };
 
 static EXPORT_CANCELLED: std::sync::LazyLock<RwLock<HashSet<String>>> =
@@ -199,6 +199,14 @@ fn format_export_sql_literal_typed(
             return format_ch_array_sql_literal(arr);
         }
     }
+    // Handle JSONB/JSON columns for PostgreSQL-family databases.
+    // JSONB values are serialized as JSON text (Value::String) by pg_value_to_json.
+    // Using ::jsonb/::json cast ensures the value is correctly parsed and
+    // preserves escape sequences (\", \\, \n, etc.) that backslash doubling
+    // would corrupt.
+    if database_type.is_some_and(is_postgres_family_target) && column_type.is_some_and(is_postgres_json_export_type) {
+        return format_postgres_json_export_literal(value, column_type.unwrap());
+    }
     if let Some(literal) = format_export_temporal_literal(value, database_type, column_type) {
         return literal;
     }
@@ -212,9 +220,43 @@ fn quote_export_sql_string(text: &str) -> String {
 fn quote_export_sql_string_for_database(text: &str, database_type: Option<DatabaseType>) -> String {
     if is_mysql_compatible_export_literal_target(database_type) {
         quote_mysql_compatible_export_sql_string(text)
+    } else if database_type.is_some_and(is_postgres_family_target) {
+        // PostgreSQL standard_conforming_strings=on (default since 9.1) treats
+        // backslashes as literal characters, so doubling them corrupts JSON
+        // escape sequences and other backslash-containing text.
+        quote_postgres_export_sql_string(text)
     } else {
         quote_export_sql_string(text)
     }
+}
+
+/// Quote a string for PostgreSQL export.
+/// Only escapes single quotes (by doubling), preserving backslashes as-is.
+/// This matches the behavior of `standard_conforming_strings = on` (default since PG 9.1).
+fn quote_postgres_export_sql_string(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
+fn is_postgres_json_export_type(column_type: &str) -> bool {
+    let lower = column_type.trim().trim_matches('"').to_ascii_lowercase();
+    let base = lower.split(['(', ' ', '\t']).next().unwrap_or("");
+    matches!(base, "jsonb" | "json") || lower.ends_with(".jsonb") || lower.ends_with(".json")
+}
+
+fn format_postgres_json_export_literal(value: &Value, column_type: &str) -> String {
+    if value.is_null() {
+        return "NULL".to_string();
+    }
+    let text = value.as_str().map_or_else(|| value.to_string(), ToString::to_string);
+    let escaped = text.replace('\'', "''");
+    let lower = column_type.trim().trim_matches('"').to_ascii_lowercase();
+    let base = lower.split(['(', ' ', '\t']).next().unwrap_or("");
+    let cast = if base == "jsonb" || lower.ends_with(".jsonb") {
+        "::jsonb"
+    } else {
+        "::json"
+    };
+    format!("'{escaped}'{cast}")
 }
 
 fn quote_mysql_compatible_export_sql_string(text: &str) -> String {
@@ -1643,6 +1685,99 @@ mod tests {
         .unwrap();
 
         assert_eq!(statements, vec!["INSERT INTO \"public\".\"articles\" (\"id\", \"title\") VALUES (1, 'Hello');"]);
+    }
+
+    #[test]
+    fn postgres_jsonb_export_preserves_escape_sequences() {
+        // JSONB values from pg_value_to_json are serialized as JSON strings.
+        // Escape sequences like \" \\ \n \t must be preserved as-is (not backslash-doubled)
+        // so that PostgreSQL's JSON parser correctly interprets them.
+        let json_with_escapes = r#"{"name":"O'Brien","path":"C:\\Users","desc":"line1\nline2"}"#;
+        let statements = build_export_insert_statements(BuildExportInsertStatementsOptions {
+            database_type: Some(DatabaseType::Postgres),
+            schema: Some("public".to_string()),
+            table_name: Some("events".to_string()),
+            qualified_table_name: None,
+            columns: vec!["id".to_string(), "metadata".to_string()],
+            column_types: vec![Some("integer".to_string()), Some("jsonb".to_string())],
+            column_extras: Vec::new(),
+            rows: vec![vec![json!(1), json!(json_with_escapes)]],
+            batch_size: Some(10),
+        })
+        .unwrap();
+
+        assert_eq!(
+            statements,
+            vec![format!(
+                r#"INSERT INTO "public"."events" ("id", "metadata") VALUES (1, '{}'::jsonb);"#,
+                json_with_escapes.replace('\'', "''")
+            )]
+        );
+    }
+
+    #[test]
+    fn postgres_json_export_uses_json_cast() {
+        let statements = build_export_insert_statements(BuildExportInsertStatementsOptions {
+            database_type: Some(DatabaseType::Postgres),
+            schema: Some("public".to_string()),
+            table_name: Some("events".to_string()),
+            qualified_table_name: None,
+            columns: vec!["data".to_string()],
+            column_types: vec![Some("json".to_string())],
+            column_extras: Vec::new(),
+            rows: vec![vec![json!(r#"{"key":"value"}"#)]],
+            batch_size: Some(10),
+        })
+        .unwrap();
+
+        assert_eq!(
+            statements,
+            vec![r#"INSERT INTO "public"."events" ("data") VALUES ('{"key":"value"}'::json);"#]
+        );
+    }
+
+    #[test]
+    fn postgres_jsonb_null_export_as_null_without_cast() {
+        let statements = build_export_insert_statements(BuildExportInsertStatementsOptions {
+            database_type: Some(DatabaseType::Postgres),
+            schema: Some("public".to_string()),
+            table_name: Some("events".to_string()),
+            qualified_table_name: None,
+            columns: vec!["id".to_string(), "metadata".to_string()],
+            column_types: vec![Some("integer".to_string()), Some("jsonb".to_string())],
+            column_extras: Vec::new(),
+            rows: vec![vec![json!(1), Value::Null]],
+            batch_size: Some(10),
+        })
+        .unwrap();
+
+        assert_eq!(
+            statements,
+            vec![r#"INSERT INTO "public"."events" ("id", "metadata") VALUES (1, NULL);"#]
+        );
+    }
+
+    #[test]
+    fn postgres_text_export_does_not_double_backslashes() {
+        // Non-JSONB text columns should also not double backslashes for PG
+        // since standard_conforming_strings=on (default since PG 9.1).
+        let statements = build_export_insert_statements(BuildExportInsertStatementsOptions {
+            database_type: Some(DatabaseType::Postgres),
+            schema: Some("public".to_string()),
+            table_name: Some("notes".to_string()),
+            qualified_table_name: None,
+            columns: vec!["path".to_string()],
+            column_types: vec![Some("text".to_string())],
+            column_extras: Vec::new(),
+            rows: vec![vec![json!(r"C:\Users\admin\file.txt")]],
+            batch_size: Some(10),
+        })
+        .unwrap();
+
+        assert_eq!(
+            statements,
+            vec![r#"INSERT INTO "public"."notes" ("path") VALUES ('C:\Users\admin\file.txt');"#]
+        );
     }
 
     #[test]

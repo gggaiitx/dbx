@@ -424,7 +424,7 @@ fn is_mysql_family_target(target_db: &DatabaseType) -> bool {
 }
 
 /// QuestDB is not included. It only uses the PGWire protocol. SQL DDL syntax is not compatible.
-fn is_postgres_family_target(target_db: &DatabaseType) -> bool {
+pub fn is_postgres_family_target(target_db: &DatabaseType) -> bool {
     matches!(
         target_db,
         DatabaseType::Postgres
@@ -972,6 +972,12 @@ pub fn escape_value_typed(val: &serde_json::Value, db_type: &DatabaseType, colum
                 return binary_literal;
             }
 
+            // JSONB/JSON columns in PostgreSQL-family databases: use typed cast
+            // to preserve JSON escape sequences (\", \\, \n, etc.) correctly.
+            if is_postgres_family_target(db_type) && column_type.is_some_and(is_postgres_json_insert_type) {
+                return format_postgres_json_insert_literal(s, column_type.unwrap());
+            }
+
             let literal = format_literal_string(s, db_type, column_type);
             let escaped = if is_postgres_family_target(db_type) {
                 literal.replace('\'', "''")
@@ -1003,6 +1009,24 @@ fn is_mysql_bit_type(column_type: &str) -> bool {
     let trimmed = column_type.trim();
     let lower = trimmed.to_ascii_lowercase();
     lower == "bit" || lower.starts_with("bit(") || lower.starts_with("bit ")
+}
+
+fn is_postgres_json_insert_type(column_type: &str) -> bool {
+    let lower = column_type.trim().trim_matches('"').to_ascii_lowercase();
+    let base = lower.split(['(', ' ', '\t']).next().unwrap_or("");
+    matches!(base, "jsonb" | "json") || lower.ends_with(".jsonb") || lower.ends_with(".json")
+}
+
+fn format_postgres_json_insert_literal(text: &str, column_type: &str) -> String {
+    let escaped = text.replace('\'', "''");
+    let lower = column_type.trim().trim_matches('"').to_ascii_lowercase();
+    let base = lower.split(['(', ' ', '\t']).next().unwrap_or("");
+    let cast = if base == "jsonb" || lower.ends_with(".jsonb") {
+        "::jsonb"
+    } else {
+        "::json"
+    };
+    format!("'{escaped}'{cast}")
 }
 
 fn is_binary_transfer_column_type(column_type: &str) -> bool {
@@ -5417,6 +5441,44 @@ mod tests {
         );
 
         assert_eq!(sql, "INSERT INTO `policies` (`insurance_start_time`) VALUES\n('2026-05-12 00:00:00')");
+    }
+
+    #[test]
+    fn postgres_jsonb_insert_uses_jsonb_cast_and_preserves_escapes() {
+        let json_text = r#"{"name":"O'Brien","path":"C:\\Users","desc":"line1\nline2"}"#;
+        let sql = generate_insert_typed(
+            &[String::from("id"), String::from("metadata")],
+            &[Some(String::from("integer")), Some(String::from("jsonb"))],
+            &[vec![json!(1), json!(json_text)]],
+            "events",
+            "public",
+            &DatabaseType::Postgres,
+        );
+
+        assert_eq!(
+            sql,
+            format!(
+                r#"INSERT INTO "public"."events" ("id", "metadata") VALUES\n(1, '{}'::jsonb)"#,
+                json_text.replace('\'', "''")
+            )
+        );
+    }
+
+    #[test]
+    fn postgres_json_insert_uses_json_cast() {
+        let sql = generate_insert_typed(
+            &[String::from("data")],
+            &[Some(String::from("json"))],
+            &[vec![json!(r#"{"key":"value"}"#)]],
+            "events",
+            "public",
+            &DatabaseType::Postgres,
+        );
+
+        assert_eq!(
+            sql,
+            r#"INSERT INTO "public"."events" ("data") VALUES\n('{"key":"value"}'::json)"#
+        );
     }
 
     #[test]

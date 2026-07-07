@@ -10,7 +10,7 @@ use base64::Engine;
 use russh::client::{self, Config, Handle};
 use russh::keys::agent::{client::AgentClient, AgentIdentity};
 use russh::keys::{decode_secret_key, key::PrivateKeyWithHashAlg, PrivateKey};
-use russh::{kex, ChannelMsg, Preferred};
+use russh::{kex, mac, ChannelMsg, Preferred};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -47,6 +47,8 @@ impl client::Handler for SshClient {
 
 fn ssh_client_config() -> Config {
     let mut preferred = Preferred::default();
+
+    // Extend key exchange algorithms with legacy options for older servers.
     let mut kex = preferred.kex.into_owned();
     for algorithm in [kex::ECDH_SHA2_NISTP256, kex::ECDH_SHA2_NISTP384, kex::ECDH_SHA2_NISTP521, kex::DH_G14_SHA1] {
         if !kex.contains(&algorithm) {
@@ -54,6 +56,17 @@ fn ssh_client_config() -> Config {
         }
     }
     preferred.kex = Cow::Owned(kex);
+
+    // Extend MAC algorithms with legacy SHA-1 variants for older servers.
+    // russh defaults to SAFE_HMAC_ORDER which excludes hmac-sha1, but some
+    // legacy SSH servers only offer hmac-sha1, causing "No common Mac algorithm".
+    let mut macs = preferred.mac.into_owned();
+    for algorithm in [mac::HMAC_SHA1_ETM, mac::HMAC_SHA1] {
+        if !macs.contains(&algorithm) {
+            macs.push(algorithm);
+        }
+    }
+    preferred.mac = Cow::Owned(macs);
 
     Config { nodelay: true, keepalive_interval: Some(Duration::from_secs(30)), preferred, ..Default::default() }
 }
@@ -921,6 +934,20 @@ mod tests {
 
         assert!(curve25519_index < ecdh_index);
         assert!(ecdh_index < group14_sha1_index);
+    }
+
+    #[test]
+    fn ssh_client_config_includes_legacy_sha1_mac_algorithms() {
+        let config = ssh_client_config();
+        let macs = &config.preferred.mac;
+
+        let sha256_etm_index = macs.iter().position(|algorithm| *algorithm == russh::mac::HMAC_SHA256_ETM).unwrap();
+        let sha1_etm_index = macs.iter().position(|algorithm| *algorithm == russh::mac::HMAC_SHA1_ETM).unwrap();
+        let sha1_index = macs.iter().position(|algorithm| *algorithm == russh::mac::HMAC_SHA1).unwrap();
+
+        // Safe MACs come first, legacy SHA-1 variants appended after.
+        assert!(sha256_etm_index < sha1_etm_index);
+        assert!(sha1_etm_index < sha1_index);
     }
 
     #[test]

@@ -1405,7 +1405,7 @@ pub async fn list_databases(pool: &Pool) -> Result<Vec<DatabaseInfo>, String> {
     .await
     .map_err(|e| e.to_string())?;
 
-    Ok(rows.iter().map(|row| DatabaseInfo { name: pg_row_try_string(&row, 0) }).collect())
+    Ok(rows.iter().map(|row| DatabaseInfo { name: pg_row_try_string(row, 0) }).collect())
 }
 
 pub async fn list_tables(pool: &Pool, schema: &str) -> Result<Vec<TableInfo>, String> {
@@ -1438,8 +1438,8 @@ pub async fn list_tables_filtered(
     Ok(rows
         .iter()
         .map(|row| TableInfo {
-            name: pg_row_try_string(&row, 0),
-            table_type: pg_row_try_string(&row, 1),
+            name: pg_row_try_string(row, 0),
+            table_type: pg_row_try_string(row, 1),
             comment: row.try_get::<_, Option<String>>(2).ok().flatten().filter(|s| !s.is_empty()),
             parent_schema: row.try_get::<_, Option<String>>(3).ok().flatten().filter(|s| !s.is_empty()),
             parent_name: row.try_get::<_, Option<String>>(4).ok().flatten().filter(|s| !s.is_empty()),
@@ -1962,8 +1962,8 @@ pub async fn list_objects(pool: &Pool, schema: &str) -> Result<Vec<ObjectInfo>, 
     Ok(rows
         .iter()
         .map(|row| ObjectInfo {
-            name: pg_row_try_string(&row, 0),
-            object_type: pg_row_try_string(&row, 1),
+            name: pg_row_try_string(row, 0),
+            object_type: pg_row_try_string(row, 1),
             schema: Some(schema.to_string()),
             comment: row.try_get::<_, Option<String>>(2).ok().flatten().filter(|s| !s.is_empty()),
             created_at: row.try_get::<_, Option<String>>(3).ok().flatten().filter(|s| !s.is_empty()),
@@ -1994,7 +1994,7 @@ pub async fn list_object_statistics(pool: &Pool, schema: &str) -> Result<Vec<Obj
     Ok(rows
         .iter()
         .map(|row| ObjectStatistics {
-            name: pg_row_try_string(&row, 0),
+            name: pg_row_try_string(row, 0),
             schema: Some(schema.to_string()),
             estimated_rows: row.try_get::<_, i64>(1).ok(),
             total_bytes: row.try_get::<_, i64>(2).ok(),
@@ -2028,7 +2028,7 @@ pub async fn list_schema_infos(pool: &Pool) -> Result<Vec<SchemaInfo>, String> {
     Ok(rows
         .iter()
         .map(|row| SchemaInfo {
-            name: pg_row_try_string(&row, 0),
+            name: pg_row_try_string(row, 0),
             comment: row.try_get::<_, Option<String>>(1).ok().flatten(),
         })
         .collect())
@@ -2171,11 +2171,11 @@ fn pg_row_try_string(row: &Row, idx: usize) -> String {
 fn column_info_from_row(row: &Row) -> ColumnInfo {
     let full_type = row.try_get::<_, Option<String>>(1).ok().flatten().unwrap_or_default();
     ColumnInfo {
-        name: pg_row_try_string(&row, 0),
+        name: pg_row_try_string(row, 0),
         data_type: full_type,
-        is_nullable: pg_row_try_bool(&row, 2).unwrap_or(true),
+        is_nullable: pg_row_try_bool(row, 2).unwrap_or(true),
         column_default: row.try_get::<_, Option<String>>(3).ok().flatten(),
-        is_primary_key: pg_row_try_bool(&row, 4).unwrap_or(false),
+        is_primary_key: pg_row_try_bool(row, 4).unwrap_or(false),
         extra: row.try_get::<_, Option<String>>(6).ok().flatten(),
         comment: row.try_get::<_, Option<String>>(5).ok().flatten(),
         numeric_precision: row.try_get::<_, Option<i32>>(7).ok().flatten(),
@@ -2797,10 +2797,10 @@ async fn list_indexes_with_sql(
             let key_cols = all_cols[..split_at].to_vec();
             let included = if split_at < all_cols.len() { all_cols[split_at..].to_vec() } else { vec![] };
             IndexInfo {
-                name: pg_row_try_string(&row, 0),
+                name: pg_row_try_string(row, 0),
                 columns: key_cols,
-                is_unique: pg_row_try_bool(&row, 2).unwrap_or(false),
-                is_primary: pg_row_try_bool(&row, 3).unwrap_or(false),
+                is_unique: pg_row_try_bool(row, 2).unwrap_or(false),
+                is_primary: pg_row_try_bool(row, 3).unwrap_or(false),
                 filter: row.try_get::<_, Option<String>>(4).ok().flatten(),
                 index_type: row.try_get::<_, Option<String>>(5).ok().flatten(),
                 included_columns: if included.is_empty() { None } else { Some(included) },
@@ -2870,13 +2870,13 @@ pub async fn list_foreign_keys(pool: &Pool, schema: &str, table: &str) -> Result
     Ok(rows
         .iter()
         .map(|row| ForeignKeyInfo {
-            name: pg_row_try_string(&row, 0),
-            column: pg_row_try_string(&row, 1),
-            ref_schema: Some(pg_row_try_string(&row, 2)),
-            ref_table: pg_row_try_string(&row, 3),
-            ref_column: pg_row_try_string(&row, 4),
-            on_update: postgres_foreign_key_action(pg_row_try_string(&row, 5)),
-            on_delete: postgres_foreign_key_action(pg_row_try_string(&row, 6)),
+            name: pg_row_try_string(row, 0),
+            column: pg_row_try_string(row, 1),
+            ref_schema: Some(pg_row_try_string(row, 2)),
+            ref_table: pg_row_try_string(row, 3),
+            ref_column: pg_row_try_string(row, 4),
+            on_update: postgres_foreign_key_action(pg_row_try_string(row, 5)),
+            on_delete: postgres_foreign_key_action(pg_row_try_string(row, 6)),
         })
         .collect())
 }
@@ -2897,9 +2897,9 @@ pub async fn list_triggers(pool: &Pool, schema: &str, table: &str) -> Result<Vec
     Ok(rows
         .iter()
         .map(|row| TriggerInfo {
-            name: pg_row_try_string(&row, 0),
-            event: pg_row_try_string(&row, 1),
-            timing: pg_row_try_string(&row, 2),
+            name: pg_row_try_string(row, 0),
+            event: pg_row_try_string(row, 1),
+            timing: pg_row_try_string(row, 2),
             statement: None,
         })
         .collect())
@@ -2944,7 +2944,7 @@ pub async fn list_functions(pool: &Pool, schema: &str) -> Result<Vec<FunctionInf
     Ok(rows
         .iter()
         .map(|row| {
-            let def: String = pg_row_try_string(&row, 3);
+            let def: String = pg_row_try_string(row, 3);
             // Remove schema qualification from CREATE FUNCTION statement
             // to avoid false differences when comparing across schemas.
             // Handle both "schema.name" and schema.name formats.
@@ -2952,11 +2952,11 @@ pub async fn list_functions(pool: &Pool, schema: &str) -> Result<Vec<FunctionInf
                 .replace(&format!("CREATE OR REPLACE FUNCTION \"{}\".", schema), "CREATE OR REPLACE FUNCTION ")
                 .replace(&format!("CREATE OR REPLACE FUNCTION {}.", schema), "CREATE OR REPLACE FUNCTION ");
             FunctionInfo {
-                name: pg_row_try_string(&row, 0),
-                function_type: pg_row_try_string(&row, 1),
-                data_type: pg_row_try_string(&row, 2),
+                name: pg_row_try_string(row, 0),
+                function_type: pg_row_try_string(row, 1),
+                data_type: pg_row_try_string(row, 2),
                 definition: normalized_def,
-                arguments: pg_row_try_string(&row, 4),
+                arguments: pg_row_try_string(row, 4),
             }
         })
         .collect())
@@ -2988,13 +2988,13 @@ pub async fn list_sequences(pool: &Pool, schema: &str, with_last_values: bool) -
     let mut sequences: Vec<SequenceInfo> = rows
         .iter()
         .map(|row| SequenceInfo {
-            name: pg_row_try_string(&row, 0),
-            data_type: pg_row_try_string(&row, 1),
-            start_value: pg_row_try_string(&row, 2),
-            min_value: pg_row_try_string(&row, 3),
-            max_value: pg_row_try_string(&row, 4),
-            increment: pg_row_try_string(&row, 5),
-            cycle: pg_row_try_string(&row, 6) == "YES",
+            name: pg_row_try_string(row, 0),
+            data_type: pg_row_try_string(row, 1),
+            start_value: pg_row_try_string(row, 2),
+            min_value: pg_row_try_string(row, 3),
+            max_value: pg_row_try_string(row, 4),
+            increment: pg_row_try_string(row, 5),
+            cycle: pg_row_try_string(row, 6) == "YES",
             last_value: None,
         })
         .collect();
@@ -3036,9 +3036,9 @@ pub async fn list_rules(pool: &Pool, schema: &str) -> Result<Vec<RuleInfo>, Stri
     Ok(rows
         .iter()
         .map(|row| RuleInfo {
-            name: pg_row_try_string(&row, 2),
-            table_name: pg_row_try_string(&row, 1),
-            definition: pg_row_try_string(&row, 3),
+            name: pg_row_try_string(row, 2),
+            table_name: pg_row_try_string(row, 1),
+            definition: pg_row_try_string(row, 3),
         })
         .collect())
 }
@@ -3061,8 +3061,8 @@ pub async fn list_extensions(pool: &Pool, schema: &str) -> Result<Vec<ExtensionI
     Ok(rows
         .iter()
         .map(|row| ExtensionInfo {
-            name: pg_row_try_string(&row, 0),
-            version: pg_row_try_string(&row, 1),
+            name: pg_row_try_string(row, 0),
+            version: pg_row_try_string(row, 1),
             comment: row.try_get::<_, Option<String>>(2).ok().flatten().filter(|s| !s.is_empty()),
             schema: Some(schema.to_string()),
         })
@@ -3085,8 +3085,8 @@ pub async fn list_available_extensions(pool: &Pool) -> Result<Vec<ExtensionInfo>
     Ok(rows
         .iter()
         .map(|row| ExtensionInfo {
-            name: pg_row_try_string(&row, 0),
-            version: pg_row_try_string(&row, 1),
+            name: pg_row_try_string(row, 0),
+            version: pg_row_try_string(row, 1),
             comment: row.try_get::<_, Option<String>>(2).ok().flatten().filter(|s| !s.is_empty()),
             schema: None,
         })
@@ -3100,11 +3100,11 @@ pub async fn list_owners(pool: &Pool, schema: &str) -> Result<Vec<OwnerInfo>, St
     Ok(rows
         .iter()
         .map(|row| {
-            let relkind: String = pg_row_try_string(&row, 2);
+            let relkind: String = pg_row_try_string(row, 2);
             OwnerInfo {
-                object_name: pg_row_try_string(&row, 1),
+                object_name: pg_row_try_string(row, 1),
                 object_type: postgres_owner_object_type(&relkind).to_string(),
-                owner: pg_row_try_string(&row, 3),
+                owner: pg_row_try_string(row, 3),
             }
         })
         .collect())

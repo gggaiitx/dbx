@@ -384,32 +384,29 @@ fn mysql_temporal_value_to_json(
     Some(serde_json::Value::String(value))
 }
 
-pub async fn connect(url: &str, db_type: DatabaseType, fallback_timeout: Duration) -> Result<MySqlPool, String> {
-    connect_with_ca_cert(url, db_type, None, fallback_timeout).await
+pub async fn connect(url: &str, fallback_timeout: Duration) -> Result<MySqlPool, String> {
+    connect_with_ca_cert(url, None, fallback_timeout).await
 }
 
 pub async fn connect_with_ca_cert(
     url: &str,
-    db_type: DatabaseType,
     ca_cert_path: Option<&str>,
     fallback_timeout: Duration,
 ) -> Result<MySqlPool, String> {
-    connect_with_ca_cert_and_pool_limit(url, db_type, ca_cert_path, fallback_timeout, 10).await
+    connect_with_ca_cert_and_pool_limit(url, ca_cert_path, fallback_timeout, 10).await
 }
 
 pub async fn connect_with_ca_cert_and_pool_limit(
     url: &str,
-    db_type: DatabaseType,
     ca_cert_path: Option<&str>,
     fallback_timeout: Duration,
     max_connections: usize,
 ) -> Result<MySqlPool, String> {
-    connect_with_ca_cert_pool_limit_and_idle(url, db_type, ca_cert_path, fallback_timeout, max_connections, None).await
+    connect_with_ca_cert_pool_limit_and_idle(url, ca_cert_path, fallback_timeout, max_connections, None).await
 }
 
 pub async fn connect_with_ca_cert_pool_limit_and_idle(
     url: &str,
-    db_type: DatabaseType,
     ca_cert_path: Option<&str>,
     fallback_timeout: Duration,
     max_connections: usize,
@@ -417,7 +414,6 @@ pub async fn connect_with_ca_cert_pool_limit_and_idle(
 ) -> Result<MySqlPool, String> {
     connect_with_ca_cert_pool_limit_idle_and_setup(
         url,
-        db_type,
         ca_cert_path,
         fallback_timeout,
         max_connections,
@@ -429,7 +425,6 @@ pub async fn connect_with_ca_cert_pool_limit_and_idle(
 
 pub async fn connect_with_ca_cert_pool_limit_idle_and_setup(
     url: &str,
-    db_type: DatabaseType,
     ca_cert_path: Option<&str>,
     fallback_timeout: Duration,
     max_connections: usize,
@@ -438,7 +433,6 @@ pub async fn connect_with_ca_cert_pool_limit_idle_and_setup(
 ) -> Result<MySqlPool, String> {
     connect_with_ca_cert_pool_limit_idle_and_setup_database(
         url,
-        db_type,
         ca_cert_path,
         fallback_timeout,
         max_connections,
@@ -451,7 +445,6 @@ pub async fn connect_with_ca_cert_pool_limit_idle_and_setup(
 
 pub async fn connect_with_ca_cert_pool_limit_idle_and_setup_database(
     url: &str,
-    db_type: DatabaseType,
     ca_cert_path: Option<&str>,
     fallback_timeout: Duration,
     max_connections: usize,
@@ -460,15 +453,7 @@ pub async fn connect_with_ca_cert_pool_limit_idle_and_setup_database(
     extra_setup_queries: &[String],
 ) -> Result<MySqlPool, String> {
     let timeout = super::parse_connect_timeout_with_fallback(url, fallback_timeout);
-    let pool = create_pool(
-        url,
-        db_type,
-        ca_cert_path,
-        max_connections,
-        idle_timeout_secs,
-        setup_database,
-        extra_setup_queries,
-    )?;
+    let pool = create_pool(url, ca_cert_path, max_connections, idle_timeout_secs, setup_database, extra_setup_queries)?;
     let result = verify_pool_connection(&pool, timeout).await;
 
     if let Err(ref e) = result {
@@ -477,7 +462,6 @@ pub async fn connect_with_ca_cert_pool_limit_idle_and_setup_database(
                 log::info!("SSL handshake failed, retrying with ssl-mode=disabled");
                 let fallback_pool = create_pool(
                     &fallback_url,
-                    db_type,
                     None,
                     max_connections,
                     idle_timeout_secs,
@@ -503,7 +487,6 @@ struct MySqlTlsFiles {
 
 fn create_pool(
     url: &str,
-    db_type: DatabaseType,
     ca_cert_path: Option<&str>,
     max_connections: usize,
     idle_timeout_secs: Option<u64>,
@@ -526,8 +509,8 @@ fn create_pool(
         .with_inactive_connection_ttl(inactive_ttl)
         .with_reset_connection(max_connections > 1);
     let setup_queries = match setup_database {
-        Some(database) => mysql_setup_queries_for_database(url, db_type, Some(database), extra_setup_queries),
-        None => mysql_setup_queries(url, db_type, extra_setup_queries),
+        Some(database) => mysql_setup_queries_for_database(url, Some(database), extra_setup_queries),
+        None => mysql_setup_queries(url, extra_setup_queries),
     };
     let mut builder = mysql_async::OptsBuilder::from_opts(opts)
         .ip_or_hostname(tcp_host)
@@ -650,13 +633,12 @@ fn mysql_ssl_opts(
     Ok(Some(ssl_opts))
 }
 
-fn mysql_setup_queries(url: &str, db_type: DatabaseType, extra_setup_queries: &[String]) -> Vec<String> {
-    mysql_setup_queries_for_database(url, db_type, None, extra_setup_queries)
+fn mysql_setup_queries(url: &str, extra_setup_queries: &[String]) -> Vec<String> {
+    mysql_setup_queries_for_database(url, None, extra_setup_queries)
 }
 
 fn mysql_setup_queries_for_database(
     url: &str,
-    db_type: DatabaseType,
     setup_database: Option<&str>,
     extra_setup_queries: &[String],
 ) -> Vec<String> {
@@ -674,11 +656,7 @@ fn mysql_setup_queries_for_database(
     // MySQL defaults group_concat_max_len to 1024, which silently truncates
     // GROUP_CONCAT results. Use @@ syntax because Manticore accepts it as a
     // compatibility no-op while `SET SESSION` fails during connection setup.
-    // StarRocks and Doris do not support this variable and will reject the
-    // connection with "Unknown system variable" if we send it.
-    if !matches!(db_type, DatabaseType::StarRocks | DatabaseType::Doris) {
-        queries.push("SET @@group_concat_max_len = 1048576".to_string());
-    }
+    queries.push("SET @@group_concat_max_len = 1048576".to_string());
     // StarRocks/Doris expose external storage (Paimon, Hive, ...) through a
     // catalog. `SET catalog` must run *before* `USE <database>` (the database
     // lives in the external catalog and is unknown to the default one).
@@ -1211,47 +1189,37 @@ fn mysql_async_url(url: &str) -> Cow<'_, str> {
     }
 }
 
-pub async fn connect_bare(url: &str, db_type: DatabaseType, fallback_timeout: Duration) -> Result<MySqlPool, String> {
-    connect_bare_with_pool_limit(url, db_type, fallback_timeout, 3).await
+pub async fn connect_bare(url: &str, fallback_timeout: Duration) -> Result<MySqlPool, String> {
+    connect_bare_with_pool_limit(url, fallback_timeout, 3).await
 }
 
 pub async fn connect_bare_with_pool_limit(
     url: &str,
-    db_type: DatabaseType,
     fallback_timeout: Duration,
     max_connections: usize,
 ) -> Result<MySqlPool, String> {
-    connect_bare_with_pool_limit_and_setup(url, db_type, fallback_timeout, max_connections, &[]).await
+    connect_bare_with_pool_limit_and_setup(url, fallback_timeout, max_connections, &[]).await
 }
 
 pub async fn connect_bare_with_pool_limit_and_setup(
     url: &str,
-    db_type: DatabaseType,
     fallback_timeout: Duration,
     max_connections: usize,
     extra_setup_queries: &[String],
 ) -> Result<MySqlPool, String> {
-    connect_bare_with_pool_limit_and_setup_database(
-        url,
-        db_type,
-        fallback_timeout,
-        max_connections,
-        None,
-        extra_setup_queries,
-    )
-    .await
+    connect_bare_with_pool_limit_and_setup_database(url, fallback_timeout, max_connections, None, extra_setup_queries)
+        .await
 }
 
 pub async fn connect_bare_with_pool_limit_and_setup_database(
     url: &str,
-    db_type: DatabaseType,
     fallback_timeout: Duration,
     max_connections: usize,
     setup_database: Option<&str>,
     extra_setup_queries: &[String],
 ) -> Result<MySqlPool, String> {
     let timeout = super::parse_connect_timeout_with_fallback(url, fallback_timeout);
-    let pool = create_pool(url, db_type, None, max_connections, None, setup_database, extra_setup_queries)?;
+    let pool = create_pool(url, None, max_connections, None, setup_database, extra_setup_queries)?;
     verify_pool_connection(&pool, timeout).await.map(|_| pool)
 }
 
@@ -3870,27 +3838,21 @@ UNIQUE KEY(`tenant_id`, `name``part`)
 
     #[test]
     fn mysql_setup_queries_select_requested_database_before_session_init() {
-        let queries =
-            mysql_setup_queries("mysql://root:secret@localhost:3306/app?charset=utf8mb4", DatabaseType::Mysql, &[]);
+        let queries = mysql_setup_queries("mysql://root:secret@localhost:3306/app?charset=utf8mb4", &[]);
 
         assert_eq!(queries, vec!["USE `app`", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]);
     }
 
     #[test]
     fn mysql_setup_queries_skip_use_when_database_missing() {
-        let queries =
-            mysql_setup_queries("mysql://root:secret@localhost:3306?charset=utf8mb4", DatabaseType::Mysql, &[]);
+        let queries = mysql_setup_queries("mysql://root:secret@localhost:3306?charset=utf8mb4", &[]);
 
         assert_eq!(queries, vec!["SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]);
     }
 
     #[test]
     fn mysql_setup_queries_decode_database_name_from_url() {
-        let queries = mysql_setup_queries(
-            "mysql://root:secret@localhost:3306/db%2Fname?charset=utf8mb4",
-            DatabaseType::Mysql,
-            &[],
-        );
+        let queries = mysql_setup_queries("mysql://root:secret@localhost:3306/db%2Fname?charset=utf8mb4", &[]);
 
         assert_eq!(queries, vec!["USE `db/name`", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]);
     }
@@ -3899,7 +3861,6 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     fn mysql_setup_queries_can_select_database_without_url_path() {
         let queries = mysql_setup_queries_for_database(
             "mysql://root:secret@localhost:3306?charset=utf8mb4",
-            DatabaseType::Mysql,
             Some("app`proxy"),
             &[],
         );
@@ -3942,7 +3903,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[ignore = "requires remote MariaDB with ed25519 user"]
     async fn test_ed25519_auth() {
         let url = "mysql://edtest:test123@172.26.128.159:20026/testdb";
-        let pool = super::connect(url, DatabaseType::Mysql, std::time::Duration::from_secs(5)).await.expect("connect with ed25519");
+        let pool = super::connect(url, std::time::Duration::from_secs(5)).await.expect("connect with ed25519");
         let mut conn = pool.get_conn().await.expect("get connection");
         conn.ping().await.expect("ping");
         let _ = conn.disconnect().await;
@@ -4087,7 +4048,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_default_to_utf8mb4() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db", &[]),
             vec!["USE `db`", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
         );
     }
@@ -4095,11 +4056,11 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_use_safe_custom_charset() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?ssl-mode=preferred&charset=gbk", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?ssl-mode=preferred&charset=gbk", &[]),
             vec!["USE `db`", "SET NAMES gbk", "SET @@group_concat_max_len = 1048576"]
         );
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?charset=utf8mb4;DROP TABLE users", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?charset=utf8mb4;DROP TABLE users", &[]),
             vec!["USE `db`", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
         );
     }
@@ -4109,7 +4070,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
         let extra = vec!["SET ob_query_timeout = 30000000".to_string()];
 
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db", DatabaseType::Mysql, &extra),
+            mysql_setup_queries("mysql://host:3306/db", &extra),
             vec![
                 "USE `db`",
                 "SET NAMES utf8mb4",
@@ -4122,11 +4083,11 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_apply_explicit_time_zone() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?time_zone=%2B08%3A00&charset=utf8mb4", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?time_zone=%2B08%3A00&charset=utf8mb4", &[]),
             vec!["USE `db`", "SET time_zone = '+08:00'", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
         );
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?time-zone=Asia%2FShanghai", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?time-zone=Asia%2FShanghai", &[]),
             vec![
                 "USE `db`",
                 "SET time_zone = 'Asia/Shanghai'",
@@ -4139,11 +4100,11 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_apply_jdbc_time_zone_aliases() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?serverTimezone=GMT%2B8", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?serverTimezone=GMT%2B8", &[]),
             vec!["USE `db`", "SET time_zone = '+08:00'", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
         );
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?connectionTimeZone=UTC", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?connectionTimeZone=UTC", &[]),
             vec!["USE `db`", "SET time_zone = '+00:00'", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
         );
     }
@@ -4151,7 +4112,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_apply_go_loc_when_no_explicit_time_zone_exists() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?loc=Asia%2FShanghai", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?loc=Asia%2FShanghai", &[]),
             vec![
                 "USE `db`",
                 "SET time_zone = 'Asia/Shanghai'",
@@ -4160,7 +4121,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
             ]
         );
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?time_zone=%2B08%3A00&loc=UTC", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?time_zone=%2B08%3A00&loc=UTC", &[]),
             vec!["USE `db`", "SET time_zone = '+08:00'", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
         );
     }
@@ -4168,11 +4129,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_ignore_unsafe_time_zone_values() {
         assert_eq!(
-            mysql_setup_queries(
-                "mysql://host:3306/db?time_zone=%2B08%3A00%27%3BDROP%20TABLE%20users",
-                DatabaseType::Mysql,
-                &[]
-            ),
+            mysql_setup_queries("mysql://host:3306/db?time_zone=%2B08%3A00%27%3BDROP%20TABLE%20users", &[]),
             vec!["USE `db`", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
         );
     }
@@ -4182,7 +4139,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
         // `SET catalog` is pushed last so mysql_async's back-to-front setup
         // execution (Vec::pop) runs it before `USE <database>`.
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/clip?catalog=paimon_catalog", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/clip?catalog=paimon_catalog", &[]),
             vec![
                 "USE `clip`",
                 "SET NAMES utf8mb4",
@@ -4195,7 +4152,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_switch_catalog_without_database() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/?catalog=paimon_catalog", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/?catalog=paimon_catalog", &[]),
             vec!["SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576", "SET catalog = `paimon_catalog`"]
         );
     }
@@ -4203,7 +4160,7 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_decodes_catalog_parameter() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?catalog=my%5Fcatalog", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?catalog=my%5Fcatalog", &[]),
             vec!["USE `db`", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576", "SET catalog = `my_catalog`"]
         );
     }
@@ -4211,24 +4168,8 @@ UNIQUE KEY(`tenant_id`, `name``part`)
     #[test]
     fn mysql_setup_queries_omits_catalog_when_absent() {
         assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?charset=utf8mb4", DatabaseType::Mysql, &[]),
+            mysql_setup_queries("mysql://host:3306/db?charset=utf8mb4", &[]),
             vec!["USE `db`", "SET NAMES utf8mb4", "SET @@group_concat_max_len = 1048576"]
-        );
-    }
-
-    #[test]
-    fn mysql_setup_queries_skip_group_concat_max_len_for_starrocks() {
-        assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?charset=utf8mb4", DatabaseType::StarRocks, &[]),
-            vec!["USE `db`", "SET NAMES utf8mb4"]
-        );
-    }
-
-    #[test]
-    fn mysql_setup_queries_skip_group_concat_max_len_for_doris() {
-        assert_eq!(
-            mysql_setup_queries("mysql://host:3306/db?charset=utf8mb4", DatabaseType::Doris, &[]),
-            vec!["USE `db`", "SET NAMES utf8mb4"]
         );
     }
 }

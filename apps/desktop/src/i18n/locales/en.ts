@@ -3032,6 +3032,8 @@ export default {
     wordWrapDescription: "Wrap long SQL lines within the editor width",
     vimMode: "Vim mode",
     vimModeDescription: "Use Vim-style modal editing in the SQL editor",
+    autoCloseBrackets: "Auto-close brackets",
+    autoCloseBracketsDescription: "Automatically insert closing brackets and quotes when typing an opening one",
     sqlSemanticDiagnosticsEnabled: "SQL semantic diagnostics",
     sqlSemanticDiagnosticsEnabledDescription: "When enabled, the editor reports semantic issues such as unknown tables and columns. Disable it to reduce parsing and metadata checks for large SQL.",
     confirmDangerousSqlExecution: "Confirm before dangerous SQL",

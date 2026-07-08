@@ -2933,6 +2933,8 @@ export default withEnglishFallback({
     wordWrapDescription: "Ajustar las líneas largas de SQL al ancho del editor",
     vimMode: "Modo Vim",
     vimModeDescription: "Usar edición modal estilo Vim en el editor SQL",
+    autoCloseBrackets: "Cerrar paréntesis automáticamente",
+    autoCloseBracketsDescription: "Insertar automáticamente paréntesis y comillas de cierre al escribir los de apertura",
     sqlSemanticDiagnosticsEnabled: "Diagnóstico semántico de SQL",
     sqlSemanticDiagnosticsEnabledDescription: "Al activarse, el editor informa de problemas semánticos como tablas y columnas desconocidas. Desactívalo para reducir el análisis y las comprobaciones de metadatos en SQL grandes.",
     confirmDangerousSqlExecution: "Confirmar antes de SQL peligroso",

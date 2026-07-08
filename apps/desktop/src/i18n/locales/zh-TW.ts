@@ -2828,6 +2828,8 @@ export default withEnglishFallback({
     wordWrapDescription: "長 SQL 在編輯器寬度內自動折行顯示",
     vimMode: "Vim 模式",
     vimModeDescription: "在 SQL 編輯器中使用 Vim 風格的模態編輯",
+    autoCloseBrackets: "自動成對補全",
+    autoCloseBracketsDescription: "輸入左括號或左引號時自動補全對應的右括號或右引號",
     sqlSemanticDiagnosticsEnabled: "SQL 語意診斷",
     sqlSemanticDiagnosticsEnabledDescription: "開啟後，編輯器會提示未知資料表、欄位等語意問題；關閉可減少 SQL 解析和中繼資料檢查的效能負擔。",
     confirmDangerousSqlExecution: "執行危險 SQL 前彈出確認",

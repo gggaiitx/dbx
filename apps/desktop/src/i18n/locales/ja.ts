@@ -2922,6 +2922,8 @@ export default withEnglishFallback({
     wordWrapDescription: "長いSQL行をエディタ幅内で折り返します",
     vimMode: "Vimモード",
     vimModeDescription: "SQLエディタでVim形式のモーダル編集を使用します",
+    autoCloseBrackets: "自動括弧補完",
+    autoCloseBracketsDescription: "左括弧や左引用符を入力すると、対応する右括弧や右引用符を自動的に挿入します",
     sqlSemanticDiagnosticsEnabled: "SQLセマンティック診断",
     sqlSemanticDiagnosticsEnabledDescription: "有効時、エディタは不明なテーブルや列などの意味的な問題を表示します。大きなSQLの解析とメタデータ確認の負荷を減らすには無効にします。",
     confirmDangerousSqlExecution: "危険なSQLの前に確認",

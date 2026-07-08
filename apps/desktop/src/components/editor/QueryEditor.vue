@@ -202,6 +202,8 @@ let fontThemeComp: import("@codemirror/state").Compartment | null = null;
 let codeMirrorTheme: import("@codemirror/state").Compartment | null = null;
 let wordWrapComp: import("@codemirror/state").Compartment | null = null;
 let vimModeComp: import("@codemirror/state").Compartment | null = null;
+let closeBracketsComp: import("@codemirror/state").Compartment | null = null;
+let codeMirrorCloseBrackets: typeof import("@codemirror/autocomplete").closeBrackets | null = null;
 let readOnlyComp: import("@codemirror/state").Compartment | null = null;
 let runGutterComp: import("@codemirror/state").Compartment | null = null;
 let runKeymapComp: import("@codemirror/state").Compartment | null = null;
@@ -287,6 +289,7 @@ const queryEditorAppearanceSettings = computed(() => {
     activeCustomThemeId: settings.activeCustomThemeId,
     wordWrap: settings.wordWrap,
     vimModeEnabled: settings.vimModeEnabled,
+    autoCloseBrackets: settings.autoCloseBrackets,
     showCurrentStatementFrame: settings.showCurrentStatementFrame,
     shortcuts: settings.shortcuts,
     showStatementRunButtons: settings.showStatementRunButtons,
@@ -963,6 +966,11 @@ function acceptCompletionOrNextSnippetField(view: EditorViewType): boolean {
 function wordWrapExtension() {
   if (!editorViewModule) return [];
   return props.forceWordWrap || settingsStore.editorSettings.wordWrap ? editorViewModule.EditorView.lineWrapping : [];
+}
+
+function closeBracketsExtension(enabled = settingsStore.editorSettings.autoCloseBrackets) {
+  if (!enabled || !codeMirrorCloseBrackets) return [];
+  return codeMirrorCloseBrackets();
 }
 
 function vimModeExtension(enabled = settingsStore.editorSettings.vimModeEnabled) {
@@ -2492,6 +2500,8 @@ onMounted(async () => {
   codeMirrorTheme = new Compartment();
   wordWrapComp = new Compartment();
   vimModeComp = new Compartment();
+  closeBracketsComp = new Compartment();
+  codeMirrorCloseBrackets = closeBrackets;
   readOnlyComp = new Compartment();
   runGutterComp = new Compartment();
   runKeymapComp = new Compartment();
@@ -2755,7 +2765,7 @@ onMounted(async () => {
       completionComp.of(buildSqlCompletionExtension()),
       sqlCompletionTheme(EditorView),
       codeMirrorTheme.of(theme),
-      closeBrackets(),
+      closeBracketsComp.of(closeBracketsExtension(initialSettings.autoCloseBrackets)),
       bracketMatching(),
       hoverTooltip((currentView, pos) => resolveSqlHoverTooltip(currentView, pos)),
       buildSqlSignatureExtension(),
@@ -3099,7 +3109,7 @@ function getCurrentCustomThemeColors() {
 watch(
   [queryEditorAppearanceSettings, () => isDark.value, () => themePalette.value],
   async ([ss]) => {
-    if (!view.value || !codeMirrorTheme || !fontThemeComp || !wordWrapComp || !vimModeComp || !runGutterComp || !runKeymapComp || !editorViewModule) {
+    if (!view.value || !codeMirrorTheme || !fontThemeComp || !wordWrapComp || !vimModeComp || !closeBracketsComp || !runGutterComp || !runKeymapComp || !editorViewModule) {
       return;
     }
     if (!isGestureZooming.value && !zoomCommitScheduler.hasPendingCommit() && liveFontSize.value !== ss.fontSize) {
@@ -3108,7 +3118,7 @@ watch(
     syncEditorFontCssVars(liveFontSize.value, ss.fontFamily);
     const themeColors = getCurrentCustomThemeColors();
     const [themeExt] = await Promise.all([loadEditorTheme(ss.theme, editorThemeAppearance(), themeColors, themePalette.value), ss.vimModeEnabled ? ensureCodeMirrorVim() : Promise.resolve(false)]);
-    if (!view.value || !codeMirrorTheme || !wordWrapComp || !vimModeComp || !runGutterComp || !runKeymapComp || !editorViewModule) {
+    if (!view.value || !codeMirrorTheme || !wordWrapComp || !vimModeComp || !closeBracketsComp || !runGutterComp || !runKeymapComp || !editorViewModule) {
       return;
     }
     view.value.dispatch({
@@ -3116,6 +3126,7 @@ watch(
         codeMirrorTheme.reconfigure(themeExt),
         wordWrapComp.reconfigure(props.forceWordWrap || ss.wordWrap ? editorViewModule.EditorView.lineWrapping : []),
         vimModeComp.reconfigure(vimModeExtension(settingsStore.editorSettings.vimModeEnabled)),
+        closeBracketsComp.reconfigure(closeBracketsExtension(settingsStore.editorSettings.autoCloseBrackets)),
         runGutterComp.reconfigure(props.hideExecutionControls ? [] : (buildRunStatementGutterExtension?.() ?? [])),
         runKeymapComp.reconfigure(runKeymapExtension(editorViewModule.keymap)),
       ],

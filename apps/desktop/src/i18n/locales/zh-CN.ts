@@ -3032,6 +3032,8 @@ export default withEnglishFallback({
     wordWrapDescription: "长 SQL 在编辑器宽度内自动折行显示",
     vimMode: "Vim 模式",
     vimModeDescription: "在 SQL 编辑器中使用 Vim 风格的模态编辑",
+    autoCloseBrackets: "自动成对补全",
+    autoCloseBracketsDescription: "输入左括号或左引号时自动补全对应的右括号或右引号",
     sqlSemanticDiagnosticsEnabled: "SQL 语义诊断",
     sqlSemanticDiagnosticsEnabledDescription: "开启后，编辑器会提示未知表、字段等语义问题；关闭可减少 SQL 解析和元数据检查的性能开销。",
     confirmDangerousSqlExecution: "执行危险 SQL 前弹出确认",

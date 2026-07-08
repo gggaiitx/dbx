@@ -1187,8 +1187,15 @@ impl AppState {
             agent_connection_pool_database_type!() => {
                 let connect_params =
                     agent_connect_params(&db_config, &host, port, db_config.effective_database().unwrap_or(""));
-                let mut client =
-                    self.agent_manager.spawn(&db_config.db_type, db_config.driver_profile.as_deref()).await?;
+                // Kerberos JVM properties are connection-scoped; shared agent daemons must not inherit them.
+                let mut client = self
+                    .agent_manager
+                    .spawn_with_extra_java_args(
+                        &db_config.db_type,
+                        db_config.driver_profile.as_deref(),
+                        &db_config.agent_java_options,
+                    )
+                    .await?;
                 let connect_result = client
                     .call_method_with_timeout::<serde_json::Value>(
                         AgentMethod::Connect,
@@ -3005,6 +3012,7 @@ mod tests {
             driver_profile: None,
             driver_label: None,
             url_params: None,
+            agent_java_options: Vec::new(),
             host: "127.0.0.1".to_string(),
             port: 3306,
             username: "root".to_string(),

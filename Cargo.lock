@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "dbx"
-version = "0.5.50"
+version = "0.5.50-1"
 dependencies = [
  "anyhow",
  "axum",

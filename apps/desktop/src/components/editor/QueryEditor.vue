@@ -972,8 +972,8 @@ function wordWrapExtension() {
 function closeBracketsExtension(enabled = settingsStore.editorSettings.autoCloseBrackets) {
   if (!enabled || !codeMirrorCloseBrackets) return [];
   const exts: import("@codemirror/state").Extension[] = [codeMirrorCloseBrackets()];
-  if (codeMirrorCloseBracketsKeymap?.length) {
-    exts.push(editorViewModule!.Prec.highest(editorViewModule!.keymap.of([...codeMirrorCloseBracketsKeymap])));
+  if (codeMirrorCloseBracketsKeymap?.length && codeMirrorPrec && editorViewModule) {
+    exts.push(codeMirrorPrec.highest(editorViewModule.keymap.of([...codeMirrorCloseBracketsKeymap])));
   }
   return exts;
 }

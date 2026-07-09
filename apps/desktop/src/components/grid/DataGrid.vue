@@ -6050,6 +6050,7 @@ const {
   copySelectionJson,
   copySelectionSqlInList,
   copySelectedRowsTsv,
+  copySelectedRowsTsvWithHeaders,
   copyColumnNames,
   exportCsv,
   exportCurrentPageCsv,
@@ -8179,6 +8180,11 @@ function copySubmenu(): ContextMenuItem {
     items.push({ label: t("grid.copyCell"), action: copyCell });
   }
   items.push({ label: labels.row, action: copyRow });
+  if (hasRowSelection.value && selectedRowCount.value > 0) {
+    const singleRowSelected = selectedRowCount.value === 1;
+    items.push({ label: singleRowSelected ? t("grid.copySelectedRowTsv") : t("grid.copySelectedRowsTsv", { count: selectedRowCount.value }), action: copySelectedRowsTsv });
+    items.push({ label: singleRowSelected ? t("grid.copySelectedRowTsvWithHeaders") : t("grid.copySelectedRowsTsvWithHeaders", { count: selectedRowCount.value }), action: copySelectedRowsTsvWithHeaders });
+  }
   if (isMultiRow.value) {
     items.push({ label: labels.insertMerged, action: () => copyRowAsInsert("merged"), disabled: !canCopyPreparedInsert(false, "merged") });
     items.push({ label: labels.insertRowByRow, action: () => copyRowAsInsert("row-by-row"), disabled: !canCopyPreparedInsert(false, "row-by-row") });

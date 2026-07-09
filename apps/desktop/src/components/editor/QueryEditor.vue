@@ -204,6 +204,7 @@ let wordWrapComp: import("@codemirror/state").Compartment | null = null;
 let vimModeComp: import("@codemirror/state").Compartment | null = null;
 let closeBracketsComp: import("@codemirror/state").Compartment | null = null;
 let codeMirrorCloseBrackets: typeof import("@codemirror/autocomplete").closeBrackets | null = null;
+let codeMirrorCloseBracketsKeymap: readonly import("@codemirror/view").KeyBinding[] | null = null;
 let readOnlyComp: import("@codemirror/state").Compartment | null = null;
 let runGutterComp: import("@codemirror/state").Compartment | null = null;
 let runKeymapComp: import("@codemirror/state").Compartment | null = null;
@@ -970,7 +971,11 @@ function wordWrapExtension() {
 
 function closeBracketsExtension(enabled = settingsStore.editorSettings.autoCloseBrackets) {
   if (!enabled || !codeMirrorCloseBrackets) return [];
-  return codeMirrorCloseBrackets();
+  const exts: import("@codemirror/state").Extension[] = [codeMirrorCloseBrackets()];
+  if (codeMirrorCloseBracketsKeymap?.length) {
+    exts.push(editorViewModule!.Prec.highest(editorViewModule!.keymap.of([...codeMirrorCloseBracketsKeymap])));
+  }
+  return exts;
 }
 
 function vimModeExtension(enabled = settingsStore.editorSettings.vimModeEnabled) {
@@ -2502,6 +2507,7 @@ onMounted(async () => {
   vimModeComp = new Compartment();
   closeBracketsComp = new Compartment();
   codeMirrorCloseBrackets = closeBrackets;
+  codeMirrorCloseBracketsKeymap = closeBracketsKeymap;
   readOnlyComp = new Compartment();
   runGutterComp = new Compartment();
   runKeymapComp = new Compartment();
@@ -2774,7 +2780,6 @@ onMounted(async () => {
       Prec.highest(
         keymap.of([
           { key: "'", run: handleSqlSingleQuote },
-          ...closeBracketsKeymap,
           { key: "Tab", run: handleTab },
           {
             key: "Escape",

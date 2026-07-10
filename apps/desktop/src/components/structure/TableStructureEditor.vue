@@ -2205,9 +2205,21 @@ watch(refreshVersion, (version, previous) => {
   void loadStructure(true);
 });
 
-watch(activeTab, (tab) => {
-  if (tab === "ddl") {
-    void fetchDdl();
+watch(
+  activeTab,
+  (tab) => {
+    if (tab === "ddl") {
+      void fetchDdl();
+    }
+  },
+  { immediate: true },
+);
+
+watch([activeTab, ddlLoading], ([tab, loading]) => {
+  if (tab === "ddl" && !loading) {
+    void nextTick(() => {
+      ddlPreRef.value?.focus();
+    });
   }
 });
 </script>

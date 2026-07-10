@@ -95,12 +95,18 @@ import { canEditExistingTableRows, canInsertTableRows, canUseKeylessRowPredicate
 import { buildDataGridColumnDistinctValuesSql, buildDataGridContextFilterCondition, buildDataGridCountSql, buildHiveTablePropertiesSql, type DataGridContextFilterMode } from "@/lib/dataGrid/dataGridSql";
 import {
   buildVisibleTransposeRows,
+  averageTransposeRecordWidth,
+  calculateTransposeRecordWidth,
+  defaultTransposeRecordWidth,
+  minTransposeFieldWidth,
+  minTransposeRecordWidth,
   nextAppendedTransposeState,
   nextContextTransposeState,
   nextKeyboardTransposeState,
   nextTransposeState,
   nextTransposeStateForRecordCount,
   transposeRecordIndexesForMode,
+  transposeRecordWidthsForDensity,
   transposeFieldWidth,
   transposeScrollLeftForRecord,
   visibleTransposeRecordWindow,
@@ -7098,50 +7104,50 @@ function copyColumnDetailFieldValue(field: DataGridCellDetail) {
   copyText(field.value === null ? "" : displayCellValue(field.value));
 }
 
-const TRANSPOSE_RECORD_DEFAULT_WIDTH = 168;
-const TRANSPOSE_RECORD_MIN_WIDTH = 96;
-const TRANSPOSE_PINNED_MIN_WIDTH = 104;
 const transposeRecordWidths = ref<number[]>([]);
+const transposeManualRecordWidthIndexes = ref(new Set<number>());
 
 function calcTransposeRecordWidth(recordIndex: number): number {
   const item = displayItemAt(recordIndex);
-  if (!item) return TRANSPOSE_RECORD_DEFAULT_WIDTH;
-  let maxWidth = TRANSPOSE_RECORD_MIN_WIDTH;
-  const charWidth = 8;
-  const padding = 28;
-  for (const value of item.data) {
-    const text = value === null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
-    const displayLen = Math.min(text.length, 60);
-    const width = displayLen * charWidth + padding;
-    if (width > maxWidth) maxWidth = width;
-  }
-  return Math.max(TRANSPOSE_RECORD_MIN_WIDTH, Math.min(400, Math.round(maxWidth)));
+  if (!item) return defaultTransposeRecordWidth(columnWidthDensity.value);
+  return calculateTransposeRecordWidth(item.data, columnWidthDensity.value);
 }
 
 function getTransposeRecordWidth(recordIndex: number): number {
-  return transposeRecordWidths.value[recordIndex] ?? TRANSPOSE_RECORD_DEFAULT_WIDTH;
+  return transposeRecordWidths.value[recordIndex] ?? defaultTransposeRecordWidth(columnWidthDensity.value);
 }
 
 function ensureTransposeRecordWidths(count: number) {
-  if (transposeRecordWidths.value.length !== count) {
-    const prev = transposeRecordWidths.value;
-    const next = Array.from({ length: count }, (_, i) => (i < prev.length ? prev[i] : calcTransposeRecordWidth(i)));
-    transposeRecordWidths.value = next;
-  }
+  if (transposeRecordWidths.value.length === count) return;
+  transposeManualRecordWidthIndexes.value = new Set([...transposeManualRecordWidthIndexes.value].filter((index) => index < count));
+  transposeRecordWidths.value = transposeRecordWidthsForDensity({
+    records: Array.from({ length: count }, (_, index) => displayItemAt(index)?.data ?? []),
+    density: columnWidthDensity.value,
+    previousWidths: transposeRecordWidths.value,
+    manualWidthIndexes: transposeManualRecordWidthIndexes.value,
+  });
 }
 
 function estimatedTransposeRecordWidth(): number {
-  const widths = transposeRecordWidths.value;
-  if (widths.length === 0) return TRANSPOSE_RECORD_DEFAULT_WIDTH;
-  return widths.reduce((sum, w) => sum + w, 0) / widths.length;
+  return averageTransposeRecordWidth(transposeRecordWidths.value, columnWidthDensity.value);
 }
 
 watch(
   () => displayRowCount.value,
   (count) => ensureTransposeRecordWidths(count),
 );
+watch(columnWidthDensity, () => {
+  // Explicit pixel widths are user overrides; only auto-sized columns follow density changes.
+  transposeRecordWidths.value = transposeRecordWidthsForDensity({
+    records: Array.from({ length: displayRowCount.value }, (_, index) => displayItemAt(index)?.data ?? []),
+    density: columnWidthDensity.value,
+    previousWidths: transposeRecordWidths.value,
+    manualWidthIndexes: transposeManualRecordWidthIndexes.value,
+  });
+  nextTick(updateTransposeViewport);
+});
 const transposePinnedWidthOverride = ref<number | null>(null);
-const transposePinnedWidth = computed(() => transposePinnedWidthOverride.value ?? transposeFieldWidth(visibleColumns.value));
+const transposePinnedWidth = computed(() => transposePinnedWidthOverride.value ?? transposeFieldWidth(visibleColumns.value, { density: columnWidthDensity.value }));
 
 const transposeRecordWindow = computed(() =>
   visibleTransposeRecordWindow({
@@ -7259,7 +7265,7 @@ function onTransposePinnedResizeStart(event: MouseEvent) {
   const startX = event.clientX;
   const startWidth = transposePinnedWidth.value;
   const onMove = (e: MouseEvent) => {
-    transposePinnedWidthOverride.value = Math.max(TRANSPOSE_PINNED_MIN_WIDTH, startWidth + e.clientX - startX);
+    transposePinnedWidthOverride.value = Math.max(minTransposeFieldWidth(columnWidthDensity.value), startWidth + e.clientX - startX);
     updateTransposeViewport();
   };
   const onUp = () => {
@@ -7277,8 +7283,9 @@ function onTransposeRecordResizeStart(recordIndex: number, event: MouseEvent) {
   const startWidth = getTransposeRecordWidth(recordIndex);
   const onMove = (e: MouseEvent) => {
     const next = [...transposeRecordWidths.value];
-    next[recordIndex] = Math.max(TRANSPOSE_RECORD_MIN_WIDTH, startWidth + e.clientX - startX);
+    next[recordIndex] = Math.max(minTransposeRecordWidth(columnWidthDensity.value), startWidth + e.clientX - startX);
     transposeRecordWidths.value = next;
+    transposeManualRecordWidthIndexes.value = new Set(transposeManualRecordWidthIndexes.value).add(recordIndex);
     updateTransposeViewport();
   };
   const onUp = () => {
@@ -7291,6 +7298,9 @@ function onTransposeRecordResizeStart(recordIndex: number, event: MouseEvent) {
 
 function autoFitTransposeRecord(recordIndex: number) {
   ensureTransposeRecordWidths(displayRowCount.value);
+  const manualIndexes = new Set(transposeManualRecordWidthIndexes.value);
+  manualIndexes.delete(recordIndex);
+  transposeManualRecordWidthIndexes.value = manualIndexes;
   const next = [...transposeRecordWidths.value];
   next[recordIndex] = calcTransposeRecordWidth(recordIndex);
   transposeRecordWidths.value = next;

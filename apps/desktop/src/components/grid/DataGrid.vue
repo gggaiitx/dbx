@@ -9716,7 +9716,14 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                 </div>
               </div>
 
-              <div v-else-if="useCanvasGridRows" ref="scrollerRef" class="data-grid-scroller canvas-grid-scroller flex-1 overflow-auto overscroll-none bg-background relative" :class="{ 'is-scrolling': isScrolling }" @scroll="onCanvasScroll" @wheel="onCanvasWheel">
+              <div
+                v-else-if="useCanvasGridRows"
+                ref="scrollerRef"
+                class="data-grid-scroller canvas-grid-scroller flex-1 overflow-auto overscroll-none bg-background relative"
+                :class="{ 'is-scrolling': isScrolling, 'has-horizontal-scrollbar': hasGridHorizontalOverflow }"
+                @scroll="onCanvasScroll"
+                @wheel="onCanvasWheel"
+              >
                 <div class="relative" :style="{ width: `${totalWidth}px`, height: `${canvasContentHeight}px` }">
                   <canvas
                     ref="canvasRef"
@@ -9818,7 +9825,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                 v-else-if="hasVisibleRows"
                 ref="scrollerRef"
                 class="data-grid-scroller dbx-data-grid-font-family flex-1 overflow-x-auto overscroll-none"
-                :class="{ 'is-scrolling': isScrolling }"
+                :class="{ 'is-scrolling': isScrolling, 'has-horizontal-scrollbar': hasGridHorizontalOverflow }"
                 :items="displayItems"
                 :item-size="26"
                 :buffer="600"
@@ -11201,6 +11208,14 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
 
 .data-grid-scroller::-webkit-scrollbar {
   display: none;
+}
+
+.canvas-grid-scroller.has-horizontal-scrollbar {
+  margin-bottom: 10px;
+}
+
+.data-grid-scroller.has-horizontal-scrollbar:not(.canvas-grid-scroller) {
+  padding-bottom: 10px;
 }
 
 .data-grid-scroller :deep(.vue-recycle-scroller__item-wrapper) {

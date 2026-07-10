@@ -138,7 +138,7 @@ export function useDataGridColumnResize(options: UseDataGridColumnResizeOptions)
     () => columnIndexes.value.join("\0"),
     () => initColumnWidths(),
   );
-  watch(density, () => initColumnWidths(true));
+  watch([density, compactColumnHeaderActions], () => initColumnWidths(true));
 
   return {
     columnWidths,

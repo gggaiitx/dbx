@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "vitest";
 import {
   applyManticoreDdlColumnExtras,
@@ -422,6 +423,14 @@ test("defaults to columns tab for create mode", () => {
 
 test("falls back to columns tab when DDL is not available in edit mode", () => {
   assert.equal(firstStructureMetadataTab(noDdlCapabilities, false), "columns");
+});
+
+test("preserves a restored structure draft tab without an explicit initial tab", () => {
+  const source = readFileSync("apps/desktop/src/components/structure/TableStructureEditor.vue", "utf8");
+  const restoredDraftBlock = source.match(/if \(props\.draft\?\.initialized\) \{[\s\S]*?\n  \} else if/);
+
+  assert.ok(restoredDraftBlock);
+  assert.match(restoredDraftBlock[0], /restoreDraft\(props\.draft\);[\s\S]*applyInitialStructureTab\(false\);/);
 });
 
 test("supports DDL tab in edit mode", () => {

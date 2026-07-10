@@ -2061,7 +2061,8 @@ onMounted(() => {
   void loadDynamicDataTypeOptions();
   if (props.draft?.initialized) {
     restoreDraft(props.draft);
-    applyInitialStructureTab();
+    // A restored draft owns its saved tab unless navigation explicitly requested another one.
+    applyInitialStructureTab(false);
     applyInitialStructureTarget();
     void hydrateRestoredDraftFromDatabase().then(() => applyInitialStructureTarget());
   } else if (isCreateMode.value) {
@@ -2105,10 +2106,10 @@ function resolveStructureMetadataTab(tab: TableInfoTab | undefined, capabilities
   return localFirstStructureMetadataTab(capabilities);
 }
 
-function applyInitialStructureTab() {
+function applyInitialStructureTab(useDefault = true) {
   if (props.initialTab) {
     activeTab.value = resolveStructureMetadataTab(props.initialTab);
-  } else {
+  } else if (useDefault) {
     activeTab.value = resolveStructureMetadataTab(undefined);
   }
 }

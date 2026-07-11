@@ -992,6 +992,9 @@ async function openSource(row: ObjectBrowserRow) {
     closeSidePanel();
     return;
   }
+  // Starting a different object must invalidate slower source requests before
+  // any state is reset, otherwise an old response can populate the new row.
+  const epoch = sidePanelGuard.start();
   sidePanelRow.value = row;
   sidePanelMode.value = "source";
   sourceRow.value = row;
@@ -1003,7 +1006,6 @@ async function openSource(row: ObjectBrowserRow) {
   sourceDraft.value = "";
   sourceSaveError.value = "";
   sourceLoading.value = true;
-  const epoch = sidePanelGuard.capture();
   const connectionId = props.connection.id;
   const database = props.database;
   const schema = row.schema || selectedSchema.value || database;

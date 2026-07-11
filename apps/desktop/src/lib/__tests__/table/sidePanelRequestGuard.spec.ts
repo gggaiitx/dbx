@@ -30,14 +30,11 @@ describe("SidePanelRequestGuard", () => {
     expect(guard.isFresh(e3)).toBe(true);
   });
 
-  it("simulates fast switch A→B: A's result is stale after bump", () => {
+  it("starting B invalidates an in-flight request for A", () => {
     const guard = createSidePanelRequestGuard();
-    // Open object A
-    const epochA = guard.capture();
-    // Switch to object B (bumps epoch)
-    guard.bump();
-    const epochB = guard.capture();
-    // A's slow response arrives — must be discarded
+    const epochA = guard.start();
+    const epochB = guard.start();
+
     expect(guard.isStale(epochA)).toBe(true);
     expect(guard.isFresh(epochB)).toBe(true);
   });

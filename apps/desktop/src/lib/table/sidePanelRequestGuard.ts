@@ -9,6 +9,8 @@
 export interface SidePanelRequestGuard {
   /** Bump the epoch, invalidating all previously captured epochs. */
   bump: () => void;
+  /** Start a new request context and return its epoch. */
+  start: () => number;
   /** Capture the current epoch for later staleness comparison. */
   capture: () => number;
   /** Returns true if the captured epoch is no longer current (request is stale). */
@@ -23,6 +25,7 @@ export function createSidePanelRequestGuard(): SidePanelRequestGuard {
     bump: () => {
       epoch++;
     },
+    start: () => ++epoch,
     capture: () => epoch,
     isStale: (capturedEpoch: number) => capturedEpoch !== epoch,
     isFresh: (capturedEpoch: number) => capturedEpoch === epoch,

@@ -94,6 +94,7 @@ import {
   type ObjectBrowserSortKey,
 } from "@/lib/table/objectBrowserRows";
 import { resolveRowClickAction, shouldDeferSingleClick, type ObjectBrowserRowAction } from "@/lib/table/objectBrowserRowAction";
+import { createSidePanelRequestGuard } from "@/lib/table/sidePanelRequestGuard";
 
 type ObjectFilter = "all" | "tables" | "views" | "materializedViews" | "procedures" | "functions" | "sequences" | "packages";
 type ObjectBrowserColumnKey = "select" | "name" | "type" | "estimatedRows" | "totalBytes" | "created_at" | "updated_at" | "comment";
@@ -160,6 +161,7 @@ const sidePanelWidth = ref(settingsStore.editorSettings.tableInfoDrawerWidth || 
 let sidePanelResizeStartX = 0;
 let sidePanelResizeStartWidth = 0;
 const isResizingSidePanel = ref(false);
+const sidePanelGuard = createSidePanelRequestGuard();
 const tableMetadataCapabilities = computed<TableMetadataCapabilities>(() => getTableMetadataCapabilities(effectiveDatabaseType.value));
 const effectiveDatabaseType = computed(() => effectiveDatabaseTypeForConnection(props.connection) ?? props.connection.db_type);
 const tableStructureDatabaseType = computed(() => tableStructureDatabaseTypeForConnection(props.connection) ?? props.connection.db_type);
@@ -814,6 +816,7 @@ async function openTableInfo(row: ObjectBrowserRow) {
   }
   sidePanelRow.value = row;
   sidePanelMode.value = "table-info";
+  sidePanelGuard.bump();
   // Reset state
   tableColumns.value = [];
   tableDdlContent.value = "";
@@ -839,67 +842,92 @@ async function selectTableInfoTab(tab: TableInfoTab) {
 }
 
 async function fetchTableDdl() {
-  if (!sidePanelRow.value) return;
+  const row = sidePanelRow.value;
+  if (!row) return;
+  const epoch = sidePanelGuard.capture();
   tableDdlLoading.value = true;
   try {
-    const schema = sidePanelRow.value.schema || selectedSchema.value || props.database;
-    tableDdlContent.value = await api.getTableDdl(props.connection.id, props.database || "", schema, sidePanelRow.value.name);
+    const schema = row.schema || selectedSchema.value || props.database;
+    const ddl = await api.getTableDdl(props.connection.id, props.database || "", schema, row.name);
+    if (sidePanelGuard.isStale(epoch)) return;
+    tableDdlContent.value = ddl;
   } catch (e: any) {
+    if (sidePanelGuard.isStale(epoch)) return;
     tableDdlContent.value = `-- Error: ${e?.message || e}`;
   } finally {
-    tableDdlLoading.value = false;
+    if (sidePanelGuard.isFresh(epoch)) tableDdlLoading.value = false;
   }
 }
 
 async function fetchTableColumns() {
-  if (!sidePanelRow.value || tableColumns.value.length > 0) return;
+  const row = sidePanelRow.value;
+  if (!row || tableColumns.value.length > 0) return;
+  const epoch = sidePanelGuard.capture();
   tableColumnsLoading.value = true;
   try {
-    const schema = sidePanelRow.value.schema || selectedSchema.value || props.database;
-    tableColumns.value = await api.getColumns(props.connection.id, props.database || "", schema, sidePanelRow.value.name);
-  } catch (e: any) {
+    const schema = row.schema || selectedSchema.value || props.database;
+    const columns = await api.getColumns(props.connection.id, props.database || "", schema, row.name);
+    if (sidePanelGuard.isStale(epoch)) return;
+    tableColumns.value = columns;
+  } catch {
+    if (sidePanelGuard.isStale(epoch)) return;
     tableColumns.value = [];
   } finally {
-    tableColumnsLoading.value = false;
+    if (sidePanelGuard.isFresh(epoch)) tableColumnsLoading.value = false;
   }
 }
 
 async function fetchTableIndexes() {
-  if (!sidePanelRow.value || tableIndexes.value.length > 0) return;
+  const row = sidePanelRow.value;
+  if (!row || tableIndexes.value.length > 0) return;
+  const epoch = sidePanelGuard.capture();
   tableIndexesLoading.value = true;
   try {
-    const schema = sidePanelRow.value.schema || selectedSchema.value || props.database;
-    tableIndexes.value = await api.listIndexes(props.connection.id, props.database || "", schema, sidePanelRow.value.name);
+    const schema = row.schema || selectedSchema.value || props.database;
+    const indexes = await api.listIndexes(props.connection.id, props.database || "", schema, row.name);
+    if (sidePanelGuard.isStale(epoch)) return;
+    tableIndexes.value = indexes;
   } catch {
+    if (sidePanelGuard.isStale(epoch)) return;
     tableIndexes.value = [];
   } finally {
-    tableIndexesLoading.value = false;
+    if (sidePanelGuard.isFresh(epoch)) tableIndexesLoading.value = false;
   }
 }
 
 async function fetchTableForeignKeys() {
-  if (!sidePanelRow.value || tableForeignKeys.value.length > 0) return;
+  const row = sidePanelRow.value;
+  if (!row || tableForeignKeys.value.length > 0) return;
+  const epoch = sidePanelGuard.capture();
   tableForeignKeysLoading.value = true;
   try {
-    const schema = sidePanelRow.value.schema || selectedSchema.value || props.database;
-    tableForeignKeys.value = await api.listForeignKeys(props.connection.id, props.database || "", schema, sidePanelRow.value.name);
+    const schema = row.schema || selectedSchema.value || props.database;
+    const fks = await api.listForeignKeys(props.connection.id, props.database || "", schema, row.name);
+    if (sidePanelGuard.isStale(epoch)) return;
+    tableForeignKeys.value = fks;
   } catch {
+    if (sidePanelGuard.isStale(epoch)) return;
     tableForeignKeys.value = [];
   } finally {
-    tableForeignKeysLoading.value = false;
+    if (sidePanelGuard.isFresh(epoch)) tableForeignKeysLoading.value = false;
   }
 }
 
 async function fetchTableTriggers() {
-  if (!sidePanelRow.value || tableTriggers.value.length > 0) return;
+  const row = sidePanelRow.value;
+  if (!row || tableTriggers.value.length > 0) return;
+  const epoch = sidePanelGuard.capture();
   tableTriggersLoading.value = true;
   try {
-    const schema = sidePanelRow.value.schema || selectedSchema.value || props.database;
-    tableTriggers.value = await api.listTriggers(props.connection.id, props.database || "", schema, sidePanelRow.value.name);
+    const schema = row.schema || selectedSchema.value || props.database;
+    const triggers = await api.listTriggers(props.connection.id, props.database || "", schema, row.name);
+    if (sidePanelGuard.isStale(epoch)) return;
+    tableTriggers.value = triggers;
   } catch {
+    if (sidePanelGuard.isStale(epoch)) return;
     tableTriggers.value = [];
   } finally {
-    tableTriggersLoading.value = false;
+    if (sidePanelGuard.isFresh(epoch)) tableTriggersLoading.value = false;
   }
 }
 
@@ -947,6 +975,7 @@ function onSidePanelResizeEnd() {
 function closeSidePanel() {
   sidePanelRow.value = null;
   sidePanelMode.value = "source";
+  sidePanelGuard.bump();
 }
 
 const canOpenTableStructureEditor = computed(() => sidePanelRow.value?.type === "TABLE" && canOpenStructureEditor.value);
@@ -974,27 +1003,36 @@ async function openSource(row: ObjectBrowserRow) {
   sourceDraft.value = "";
   sourceSaveError.value = "";
   sourceLoading.value = true;
+  const epoch = sidePanelGuard.capture();
+  const connectionId = props.connection.id;
+  const database = props.database;
+  const schema = row.schema || selectedSchema.value || database;
   try {
-    const result = await api.getObjectSource(props.connection.id, props.database, row.schema || selectedSchema.value || props.database, row.name, row.type as ObjectSourceKind);
+    const result = await api.getObjectSource(connectionId, database, schema, row.name, row.type as ObjectSourceKind);
+    if (sidePanelGuard.isStale(epoch)) return;
     sourceCanEdit.value = result.editable !== false && row.type !== "SEQUENCE";
     const editable = await api.buildEditableObjectSource({
       databaseType: effectiveDatabaseType.value,
       objectType: row.type as ObjectSourceKind,
-      schema: row.schema || selectedSchema.value || props.database,
+      schema,
       name: row.name,
       source: result.source,
     });
+    if (sidePanelGuard.isStale(epoch)) return;
+    const formatted = await formatSqlForDisplay(editable, sourceFormatDialect.value, settingsStore.editorSettings.sqlFormatter);
+    if (sidePanelGuard.isStale(epoch)) return;
     sourceEditableText.value = editable;
-    sourceContent.value = await formatSqlForDisplay(editable, sourceFormatDialect.value, settingsStore.editorSettings.sqlFormatter);
+    sourceContent.value = formatted;
     sourceDraft.value = editable;
     sourceEditing.value = sourceCanEdit.value;
     if (!sourceCanEdit.value && row.type !== "SEQUENCE") {
       toast(t("objects.sourceReadOnly"), 3000);
     }
   } catch (e: any) {
+    if (sidePanelGuard.isStale(epoch)) return;
     sourceError.value = e?.message || String(e);
   } finally {
-    sourceLoading.value = false;
+    if (sidePanelGuard.isFresh(epoch)) sourceLoading.value = false;
   }
 }
 
@@ -1810,7 +1848,10 @@ async function saveSource() {
   }
   if (!sourceRow.value || !sourceDraft.value.trim()) return;
   const row = sourceRow.value;
-  const schema = row.schema || selectedSchema.value || props.database;
+  const epoch = sidePanelGuard.capture();
+  const connectionId = props.connection.id;
+  const database = props.database;
+  const schema = row.schema || selectedSchema.value || database;
   sourceSaving.value = true;
   sourceSaveError.value = "";
   try {
@@ -1821,15 +1862,17 @@ async function saveSource() {
       name: row.name,
       source: sourceDraft.value,
     });
-    await executeObjectSourceSave(props.connection.id, props.database, effectiveDatabaseType.value, statements, schema);
+    await executeObjectSourceSave(connectionId, database, effectiveDatabaseType.value, statements, schema);
+    if (sidePanelGuard.isStale(epoch)) return;
     toast(t("objects.sourceSaved"));
     sourceEditing.value = false;
     sourceDraft.value = "";
     await openSource(row);
   } catch (e: any) {
+    if (sidePanelGuard.isStale(epoch)) return;
     sourceSaveError.value = e?.message || String(e);
   } finally {
-    sourceSaving.value = false;
+    if (sidePanelGuard.isFresh(epoch)) sourceSaving.value = false;
   }
 }
 
@@ -1995,6 +2038,15 @@ watch(
     userHasSelectedFilter.value = false;
     objectFilter.value = "all";
     clearTableSelection();
+    // Close side panel and invalidate any pending source/table-info requests
+    // so stale results from the old context don't overwrite new state.
+    closeSidePanel();
+    sourceRow.value = null;
+    sourceContent.value = "";
+    sourceError.value = "";
+    sourceLoading.value = false;
+    sourceEditing.value = false;
+    sourceSaving.value = false;
     try {
       await connectionStore.ensureConnected(props.connection.id);
     } catch (e) {

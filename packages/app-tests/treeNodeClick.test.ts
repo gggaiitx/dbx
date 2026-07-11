@@ -10,8 +10,32 @@ test("table and view rows open data without toggling structure groups", () => {
 test("double click navigation mode selects rows on single click", () => {
   assert.equal(treeNodeRowAction("table", true, "double"), "none");
   assert.equal(treeNodeRowAction("view", true, "double"), "none");
+  assert.equal(treeNodeRowAction("materialized_view", true, "double"), "none");
   assert.equal(treeNodeRowAction("procedure", false, "double"), "none");
+  assert.equal(treeNodeRowAction("function", false, "double"), "none");
+  assert.equal(treeNodeRowAction("sequence", false, "double"), "none");
+  assert.equal(treeNodeRowAction("package", false, "double"), "none");
+  assert.equal(treeNodeRowAction("package-body", false, "double"), "none");
   assert.equal(treeNodeRowAction("saved-sql-file", false, "double"), "none");
+});
+
+test("double click navigation mode still toggles container nodes on single click", () => {
+  assert.equal(treeNodeRowAction("connection", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("database", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("schema", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("group-columns", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("group-tables", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("group-views", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("group-procedures", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("group-functions", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("group-sequences", true, "double"), "toggle");
+});
+
+test("double click navigation mode does not toggle leaf metadata nodes on single click", () => {
+  assert.equal(treeNodeRowAction("column", false, "double"), "none");
+  assert.equal(treeNodeRowAction("index", false, "double"), "none");
+  assert.equal(treeNodeRowAction("fkey", false, "double"), "none");
+  assert.equal(treeNodeRowAction("trigger", false, "double"), "none");
 });
 
 test("double click navigation mode opens actionable rows on double click", () => {
@@ -80,8 +104,9 @@ test("database and schema rows open object browser only on double click", () => 
   assert.equal(treeNodeRowAction("schema", true), "toggle");
   assert.equal(treeNodeRowDoubleClickAction("database", true), "open-object-browser");
   assert.equal(treeNodeRowDoubleClickAction("schema", true), "open-object-browser");
-  assert.equal(treeNodeRowAction("database", true, "double"), "none");
-  assert.equal(treeNodeRowAction("schema", true, "double"), "none");
+  // In double-click mode, container nodes still toggle on single click
+  assert.equal(treeNodeRowAction("database", true, "double"), "toggle");
+  assert.equal(treeNodeRowAction("schema", true, "double"), "toggle");
 });
 
 test("double click navigation mode opens object browser for database and schema rows", () => {

@@ -869,7 +869,9 @@ function onClick(event: MouseEvent) {
   }
   selectSingleTreeNode(props.node);
   rowRef.value?.focus({ preventScroll: true });
-  if (settingsStore.editorSettings.sidebarActivation === "double") return;
+  // In double-click mode, container nodes (databases, schemas, groups) still
+  // toggle on single click; data objects are only selected and open on double
+  // click. treeNodeRowAction returns "none" for data objects in double mode.
   runRowClickAction(event.detail);
 }
 

@@ -31,7 +31,18 @@ export function isDocumentBrowserTreeNode(type: TreeNodeType): boolean {
 }
 
 export function treeNodeRowAction(type: TreeNodeType, canExpand: boolean, activation: SidebarActivation = "single"): TreeNodeRowAction {
-  if (activation === "double") return "none";
+  if (activation === "double") {
+    // In double-click mode, container nodes (databases, schemas, groups,
+    // connections) still expand on single click so navigation doesn't require
+    // double-clicking to traverse the tree. Data objects (tables, procedures,
+    // etc.) are only selected on single click and opened on double click.
+    if (dataNodeTypes.has(type)) return "none";
+    if (sourceNodeTypes.has(type)) return "none";
+    if (savedSqlNodeTypes.has(type)) return "none";
+    if (toggleLeafNodeTypes.has(type)) return "none";
+    if (canExpand) return "toggle";
+    return "none";
+  }
   if (dataNodeTypes.has(type)) return "open-data";
   if (toggleLeafNodeTypes.has(type)) return "toggle";
   if (canExpand) return "toggle";

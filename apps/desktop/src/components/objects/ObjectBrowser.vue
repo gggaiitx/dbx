@@ -77,7 +77,6 @@ import { useExportTracker, type ExportTask } from "@/composables/useExportTracke
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useQueryStore } from "@/stores/queryStore";
 import QueryEditor from "@/components/editor/QueryEditor.vue";
-import DdlViewDialog from "./DdlViewDialog.vue";
 import { sqlFormatDialectForDbType, type SqlFormatDialect } from "@/lib/sql/sqlFormatter";
 import { isCancelSearchShortcut } from "@/lib/editor/keyboardShortcuts";
 import { batchTableEmptyFeedback, buildBatchTableEmptyPlan, runBatchTableEmpty, type BatchTableEmptyPlanItem } from "@/lib/sidebar/batchTableEmpty";
@@ -195,8 +194,6 @@ const duplicateTarget = ref<ObjectBrowserRow | null>(null);
 const duplicateTableName = ref("");
 const showProcedureExecutionConfirm = ref(false);
 const procedureExecutionTarget = ref<ObjectBrowserRow | null>(null);
-const ddlDialogTarget = ref<ObjectBrowserRow | null>(null);
-const showDdlDialog = ref(false);
 const selectedTableIds = ref<Set<string>>(new Set());
 const expandedPartitionParentIds = ref<Set<string>>(new Set());
 const showBatchDropConfirm = ref(false);
@@ -740,7 +737,7 @@ function onRowClick(row: ObjectBrowserRow, event: MouseEvent) {
   }
   // Single click: defer when the row has a distinct double-click action so a
   // following second click can cancel it (e.g. TABLE single→table-info, double→open-table).
-  if (shouldDeferSingleClick(row, action, activation)) {
+  if (shouldDeferSingleClick(row, action)) {
     if (singleClickTimer) clearTimeout(singleClickTimer);
     singleClickTimer = setTimeout(() => {
       singleClickTimer = null;
@@ -814,9 +811,9 @@ const filteredTableDdlContent = computed(() => {
   });
 });
 
-async function openTableInfo(row: ObjectBrowserRow) {
+async function openTableInfo(row: ObjectBrowserRow, initialTab?: TableInfoTab) {
   // Toggle off if clicking the same table
-  if (sidePanelRow.value?.id === row.id && sidePanelMode.value === "table-info") {
+  if (sidePanelRow.value?.id === row.id && sidePanelMode.value === "table-info" && !initialTab) {
     closeSidePanel();
     return;
   }
@@ -830,8 +827,8 @@ async function openTableInfo(row: ObjectBrowserRow) {
   tableForeignKeys.value = [];
   tableTriggers.value = [];
   tableInfoSearchQuery.value = "";
-  // Determine first available tab
-  const firstTab = tableInfoTabs.value[0]?.id ?? "ddl";
+  // Determine initial tab: explicit request > first available > ddl
+  const firstTab = initialTab ?? tableInfoTabs.value[0]?.id ?? "ddl";
   await selectTableInfoTab(firstTab);
 }
 
@@ -854,7 +851,7 @@ async function fetchTableDdl() {
   tableDdlLoading.value = true;
   try {
     const schema = row.schema || selectedSchema.value || props.database;
-    const ddl = await api.getTableDdl(props.connection.id, props.database || "", schema, row.name);
+    const ddl = await api.getTableDdl(props.connection.id, props.database || "", schema, row.name, tableDdlObjectType(row.type));
     if (sidePanelGuard.isStale(epoch)) return;
     tableDdlContent.value = ddl;
   } catch (e: any) {
@@ -2173,10 +2170,7 @@ function getTableMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
     { label: t("contextMenu.viewData"), action: () => openViewData(item), icon: Table2 },
     {
       label: t("contextMenu.viewDdl"),
-      action: () => {
-        ddlDialogTarget.value = item;
-        showDdlDialog.value = true;
-      },
+      action: () => openTableInfo(item, "ddl"),
       icon: FileCode,
     },
     ...(canOpenStructureEditor.value ? [{ label: t("contextMenu.editStructure"), action: () => openStructureEditor(item), icon: PencilRuler }] : []),
@@ -2227,10 +2221,7 @@ function getViewMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
     { label: t("contextMenu.viewSource"), action: () => openSource(item), icon: Code2 },
     {
       label: t("contextMenu.viewDdl"),
-      action: () => {
-        ddlDialogTarget.value = item;
-        showDdlDialog.value = true;
-      },
+      action: () => openTableInfo(item, "ddl"),
       icon: ScrollText,
     },
     ...(canRename(item) ? [{ label: t("contextMenu.renameObject"), action: () => requestRename(item), icon: Pencil }] : []),
@@ -2983,18 +2974,6 @@ function getObjectBrowserMenuItems(item: ObjectBrowserRow): ContextMenuItem[] {
       </DialogFooter>
     </DialogContent>
   </Dialog>
-
-  <DdlViewDialog
-    v-if="ddlDialogTarget"
-    :connection-id="props.connection.id"
-    :database="props.database"
-    :schema="ddlDialogTarget.schema || selectedSchema"
-    :table-name="ddlDialogTarget.name"
-    :object-type="tableDdlObjectType(ddlDialogTarget.type)"
-    :dialect="sourceDialect"
-    :format-dialect="sourceFormatDialect"
-    v-model:open="showDdlDialog"
-  />
 </template>
 
 <style scoped>

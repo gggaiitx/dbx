@@ -99,13 +99,32 @@ public interface DatabaseAgent {
      */
     default String getTableComment(String schema, String table) {
         try {
+            String caseInsensitiveComment = null;
+            int caseInsensitiveMatches = 0;
             for (TableInfo info : listTables(schema)) {
-                if (info.getName().equalsIgnoreCase(table) && info.getComment() != null && !info.getComment().trim().isEmpty()) {
-                    return info.getComment().trim();
+                if (!info.getName().equalsIgnoreCase(table)) {
+                    continue;
                 }
+                if (info.getName().equals(table)) {
+                    return nonBlankComment(info.getComment());
+                }
+                caseInsensitiveMatches++;
+                caseInsensitiveComment = nonBlankComment(info.getComment());
+            }
+            // Case-insensitive databases may normalize metadata names, but quoted
+            // mixed-case objects must never borrow a sibling table's comment.
+            if (caseInsensitiveMatches == 1) {
+                return caseInsensitiveComment;
             }
         } catch (RuntimeException e) {
             // Ignore; table comment is optional.
+        }
+        return null;
+    }
+
+    static String nonBlankComment(String comment) {
+        if (comment != null && !comment.trim().isEmpty()) {
+            return comment;
         }
         return null;
     }

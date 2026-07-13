@@ -108,4 +108,39 @@ class SqlServerLegacyAgentTest {
             SqlServerLegacyAgent.relaxedDisabledAlgorithms(current)
         );
     }
+
+    @Test
+    void tableCommentQueryReadsSqlServerExtendedProperty() {
+        String sql = SqlServerLegacyAgent.tableCommentSql();
+
+        Assertions.assertTrue(sql.contains("sys.extended_properties"));
+        Assertions.assertTrue(sql.contains("ep.minor_id = 0"));
+        Assertions.assertTrue(sql.contains("ep.name = N'MS_Description'"));
+        Assertions.assertTrue(sql.contains("s.name = ? AND t.name = ?"));
+    }
+
+    @Test
+    void tableCommentDdlUsesExtendedPropertyAndPreservesWhitespace() {
+        String ddl = SqlServerLegacyAgent.appendTableCommentDdl(
+            "CREATE TABLE [dbo].[Users] ([id] int);\n",
+            "dbo",
+            "Users",
+            "  Owner's table  "
+        );
+
+        Assertions.assertTrue(ddl.contains("EXEC sys.sp_addextendedproperty"));
+        Assertions.assertTrue(ddl.contains("@value=N'  Owner''s table  '"));
+        Assertions.assertTrue(ddl.contains("@level0name=N'dbo'"));
+        Assertions.assertTrue(ddl.contains("@level1name=N'Users'"));
+    }
+
+    @Test
+    void tableCommentDdlIgnoresWhitespaceOnlyComment() {
+        String baseDdl = "CREATE TABLE [dbo].[Users] ([id] int);\n";
+
+        Assertions.assertEquals(
+            baseDdl,
+            SqlServerLegacyAgent.appendTableCommentDdl(baseDdl, "dbo", "Users", "   ")
+        );
+    }
 }

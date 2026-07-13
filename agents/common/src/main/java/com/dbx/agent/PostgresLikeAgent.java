@@ -294,7 +294,7 @@ public abstract class PostgresLikeAgent extends AbstractJdbcAgent {
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
                         String comment = rs.getString("table_comment");
-                        return (comment != null && !comment.trim().isEmpty()) ? comment.trim() : null;
+                        return (comment != null && !comment.trim().isEmpty()) ? comment : null;
                     }
                 }
             }

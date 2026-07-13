@@ -5861,6 +5861,15 @@ mod ddl_tests {
     }
 
     #[test]
+    fn postgres_table_ddl_preserves_table_comment_whitespace() {
+        let columns = vec![column("id", "integer")];
+
+        let ddl = render_postgres_table_ddl("public", "users", &columns, &[], &[], Some("  User table  "));
+
+        assert!(ddl.contains("COMMENT ON TABLE \"public\".\"users\" IS '  User table  ';"));
+    }
+
+    #[test]
     fn postgres_table_ddl_includes_generated_identity() {
         let mut id = column("id", "integer");
         id.is_nullable = false;
@@ -5945,6 +5954,15 @@ mod ddl_tests {
         let ddl = render_sqlserver_table_ddl("dbo", "users", &columns, &[], &[], Some(""));
 
         assert!(!ddl.contains("MS_Description"));
+    }
+
+    #[test]
+    fn sqlserver_table_ddl_preserves_table_comment_whitespace() {
+        let columns = vec![column("id", "int")];
+
+        let ddl = render_sqlserver_table_ddl("dbo", "users", &columns, &[], &[], Some("  User table  "));
+
+        assert!(ddl.contains("@value=N'  User table  '"));
     }
 
     #[test]
@@ -6110,7 +6128,7 @@ pub fn render_postgres_table_ddl(
     }
     ddl.push_str("\n);\n");
 
-    if let Some(comment) = table_comment.map(str::trim).filter(|comment| !comment.is_empty()) {
+    if let Some(comment) = table_comment.filter(|comment| !comment.trim().is_empty()) {
         ddl.push_str(&format!("\nCOMMENT ON TABLE {table_name} IS {};", sql_string(comment)));
     }
 
@@ -6242,7 +6260,7 @@ pub fn render_sqlserver_table_ddl(
     }
     ddl.push_str("\n);\n");
 
-    if let Some(comment) = table_comment.map(str::trim).filter(|comment| !comment.is_empty()) {
+    if let Some(comment) = table_comment.filter(|comment| !comment.trim().is_empty()) {
         ddl.push_str(&format!(
             "\nEXEC sys.sp_addextendedproperty @name=N'MS_Description', @value={}, @level0type=N'SCHEMA', @level0name={}, @level1type=N'TABLE', @level1name={};",
             sqlserver_n_string(comment),

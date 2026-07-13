@@ -2,6 +2,9 @@ package com.dbx.agent.sqlserverlegacy;
 
 import com.dbx.agent.ConfiguredJdbcAgent;
 import com.dbx.agent.ConnectParams;
+import com.dbx.agent.DdlBuilder;
+import com.dbx.agent.ForeignKeyInfo;
+import com.dbx.agent.IndexInfo;
 import com.dbx.agent.JdbcAgentProfile;
 import com.dbx.agent.MultiSessionJsonRpcServer;
 
@@ -9,9 +12,12 @@ import java.security.Security;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -66,6 +72,83 @@ public final class SqlServerLegacyAgent extends ConfiguredJdbcAgent {
         } catch (SQLException error) {
             throw withLegacyTlsDiagnostics(error);
         }
+    }
+
+    @Override
+    public String getTableComment(String schema, String table) {
+        return unchecked(() -> {
+            try (PreparedStatement statement = requireConnection().prepareStatement(tableCommentSql())) {
+                statement.setString(1, schema);
+                statement.setString(2, table);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    if (resultSet.next()) {
+                        String comment = resultSet.getString("table_comment");
+                        return comment != null && !comment.trim().isEmpty() ? comment : null;
+                    }
+                }
+            }
+            return null;
+        });
+    }
+
+    @Override
+    public String getTableDdl(String schema, String table) {
+        List<IndexInfo> indexes;
+        try {
+            indexes = listIndexes(schema, table);
+        } catch (RuntimeException error) {
+            indexes = Collections.emptyList();
+        }
+
+        List<ForeignKeyInfo> foreignKeys;
+        try {
+            foreignKeys = listForeignKeys(schema, table);
+        } catch (RuntimeException error) {
+            foreignKeys = Collections.emptyList();
+        }
+
+        String tableComment = null;
+        try {
+            tableComment = getTableComment(schema, table);
+        } catch (RuntimeException error) {
+            // Extended properties are optional; base DDL must remain available.
+        }
+
+        String ddl = DdlBuilder.buildTableDdl(
+            schema,
+            table,
+            getColumns(schema, table),
+            indexes,
+            foreignKeys,
+            Collections.emptyList(),
+            false,
+            false,
+            null
+        );
+        return appendTableCommentDdl(ddl, schema, table, tableComment);
+    }
+
+    static String tableCommentSql() {
+        return "SELECT CAST(ep.value AS nvarchar(max)) AS table_comment "
+            + "FROM sys.extended_properties ep "
+            + "JOIN sys.tables t ON t.object_id = ep.major_id "
+            + "JOIN sys.schemas s ON s.schema_id = t.schema_id "
+            + "WHERE ep.class = 1 AND ep.minor_id = 0 AND ep.name = N'MS_Description' "
+            + "AND s.name = ? AND t.name = ?";
+    }
+
+    static String appendTableCommentDdl(String ddl, String schema, String table, String comment) {
+        if (comment == null || comment.trim().isEmpty()) {
+            return ddl;
+        }
+        return ddl
+            + "\nEXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=" + sqlServerString(comment)
+            + ", @level0type=N'SCHEMA', @level0name=" + sqlServerString(schema)
+            + ", @level1type=N'TABLE', @level1name=" + sqlServerString(table) + ";";
+    }
+
+    private static String sqlServerString(String value) {
+        return "N'" + value.replace("'", "''") + "'";
     }
 
     static String legacyTlsUrl(ConnectParams params) {

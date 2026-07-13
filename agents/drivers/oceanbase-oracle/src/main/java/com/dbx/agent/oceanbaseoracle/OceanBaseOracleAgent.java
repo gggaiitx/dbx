@@ -385,7 +385,7 @@ public final class OceanBaseOracleAgent extends ConfiguredJdbcAgent {
                 try (var rs = stmt.executeQuery()) {
                     if (rs.next()) {
                         String comment = rs.getString("COMMENTS");
-                        return (comment != null && !comment.trim().isEmpty()) ? comment.trim() : null;
+                        return (comment != null && !comment.trim().isEmpty()) ? comment : null;
                     }
                 }
             }

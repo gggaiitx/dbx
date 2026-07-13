@@ -83,6 +83,7 @@ const props = defineProps<{
   executionError?: string;
   executionErrorSql?: string;
   readOnly?: boolean;
+  autoFocus?: boolean;
   forceWordWrap?: boolean;
   hideExecutionControls?: boolean;
   initialViewport?: { scrollTop: number; scrollLeft: number };
@@ -3118,12 +3119,14 @@ onMounted(async () => {
   cachedCompletionObjects = [];
   scheduleSemanticDiagnostics();
 
-  // Auto-focus the editor after mount so the user can start typing immediately
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      focusEditorView(view.value);
+  if (props.autoFocus) {
+    // Query tabs opt in; shared editor instances must preserve the surrounding UI focus.
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        focusEditorView(view.value);
+      });
     });
-  });
+  }
 
   // Ensure theme is applied with the latest settings after mount
   void nextTick(async () => {

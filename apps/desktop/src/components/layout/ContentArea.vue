@@ -766,6 +766,7 @@ defineExpose({ focusSearch, refreshData, handleModRTarget, requestQueryEditorExe
             <QueryEditor
               ref="queryEditorRef"
               class="relative z-0 flex-1"
+              auto-focus
               :model-value="activeTab.sql"
               :connection-id="activeTab.connectionId"
               :database="activeTab.database"

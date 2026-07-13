@@ -15,50 +15,74 @@ export const DATA_GRID_AUTO_FIT_VALUE_TEXT_LIMIT = 160;
 export interface ColumnWidthDensityPreset {
   charWidth: number;
   headerControlWidth: number;
+  headerControlWidthCompact: number;
   cellPadding: number;
   valueTextLimit: number;
   maxWidth: number;
   sampleRows: number;
-  headerControlWidthCompact: number;
+  // 采样值宽度百分位（0-100）。100=最大值，<100 忽略离群值实现自适应
+  valueWidthPercentile: number;
 }
 
 export const COLUMN_WIDTH_DENSITY_PRESETS: Record<ColumnWidthDensity, ColumnWidthDensityPreset> = {
   compact: {
+    // 紧凑：以字段名为基准。控件垂直堆叠 16px + padding 16px + gap 4px + border 1px = 37 + 渲染余量 8px = 45
     charWidth: 7,
-    headerControlWidth: 36,
-    headerControlWidthCompact: 20,
-    cellPadding: 18,
-    valueTextLimit: 30,
-    maxWidth: 250,
+    headerControlWidth: 45,
+    headerControlWidthCompact: 45,
+    cellPadding: 24,
+    valueTextLimit: 20,
+    maxWidth: 480,
     sampleRows: 30,
+    valueWidthPercentile: 100,
   },
   standard: {
+    // 标准：紧凑表头，减少固定开销
+    // compactActions → 实际 57px + 2px 余量 = 59
+    // 非 compactActions → 实际 81px + 2px 余量 = 83
     charWidth: 8,
-    headerControlWidth: 80,
-    headerControlWidthCompact: 80,
-    cellPadding: 28,
-    valueTextLimit: 60,
-    maxWidth: 400,
+    headerControlWidth: 83,
+    headerControlWidthCompact: 59,
+    cellPadding: 24,
+    valueTextLimit: 40,
+    maxWidth: 360,
     sampleRows: 50,
+    valueWidthPercentile: 90,
   },
   comfortable: {
-    charWidth: 9,
-    headerControlWidth: 96,
-    headerControlWidthCompact: 96,
-    cellPadding: 36,
-    valueTextLimit: 80,
+    // 宽松：展示更多内容，valueTextLimit=120 几乎不截断，maxWidth=600
+    charWidth: 8,
+    headerControlWidth: 83,
+    headerControlWidthCompact: 59,
+    cellPadding: 24,
+    valueTextLimit: 120,
     maxWidth: 600,
     sampleRows: 50,
+    valueWidthPercentile: 95,
   },
 };
 
+// 全角字符（CJK 等）按 2 倍宽度估算，确保中文字段名完整显示
 function estimateTextWidth(text: string, padding: number, charWidth: number): number {
-  return text.length * charWidth + padding;
+  let width = 0;
+  for (const ch of text) {
+    width += ch.codePointAt(0)! > 0x7e ? charWidth * 2 : charWidth;
+  }
+  return width + padding;
 }
 
 function displaySampleValue(value: CellValue): string | null {
   if (value == null) return null;
   return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+// 取排序后第 percentile 百分位的值
+export function percentileValue(values: number[], percentile: number): number {
+  if (values.length === 0) return 0;
+  if (percentile >= 100 || values.length === 1) return values[values.length - 1];
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.floor((percentile / 100) * sorted.length));
+  return sorted[idx];
 }
 
 export function calculateDataGridColumnWidth(options: { columnName: string; sampleValues: readonly CellValue[]; maxWidth?: number; valueTextLimit?: number; density?: ColumnWidthDensity; compactColumnHeaderActions?: boolean }): number {
@@ -67,15 +91,23 @@ export function calculateDataGridColumnWidth(options: { columnName: string; samp
   const maxAllowedWidth = options.maxWidth ?? preset.maxWidth;
   const valueTextLimit = options.valueTextLimit ?? preset.valueTextLimit;
   const headerControl = options.compactColumnHeaderActions ? preset.headerControlWidthCompact : preset.headerControlWidth;
-  let maxContentWidth = estimateTextWidth(options.columnName, headerControl, preset.charWidth);
+  const headerWidth = estimateTextWidth(options.columnName, headerControl, preset.charWidth);
 
+  // 紧凑模式：以字段名为基准，值不参与撑宽，仅超长时截断到 maxWidth
+  if (density === "compact") {
+    return Math.max(DATA_GRID_COL_MIN_WIDTH, Math.min(maxAllowedWidth, Math.round(headerWidth)));
+  }
+
+  const valueWidths: number[] = [];
   for (const value of options.sampleValues.slice(0, preset.sampleRows)) {
     const text = displaySampleValue(value);
     if (text == null) continue;
     const displayLen = Math.min(text.length, valueTextLimit);
-    const width = displayLen * preset.charWidth + preset.cellPadding;
-    if (width > maxContentWidth) maxContentWidth = width;
+    valueWidths.push(displayLen * preset.charWidth + preset.cellPadding);
   }
+
+  const valueWidth = percentileValue(valueWidths, preset.valueWidthPercentile);
+  const maxContentWidth = Math.max(headerWidth, valueWidth);
 
   return Math.max(DATA_GRID_COL_MIN_WIDTH, Math.min(maxAllowedWidth, Math.round(maxContentWidth)));
 }

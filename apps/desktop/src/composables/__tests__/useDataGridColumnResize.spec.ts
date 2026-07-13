@@ -54,6 +54,21 @@ describe("useDataGridColumnResize", () => {
     expect(state.columnWidths.value[0]).toBeLessThanOrEqual(DATA_GRID_COL_AUTO_FIT_MAX_WIDTH);
   });
 
+  it("includes values when explicitly auto-fitting a compact column", () => {
+    const state = createResizeState({
+      columns: ["id"],
+      rows: [["x".repeat(120)]],
+      density: "compact",
+    });
+
+    state.initColumnWidths();
+    expect(state.columnWidths.value[0]).toBe(60);
+
+    state.autoFitColumn(0);
+
+    expect(state.columnWidths.value[0]).toBeGreaterThan(60);
+  });
+
   it("clamps manual column resizing to the minimum width", () => {
     expect(resizeDataGridColumnWidth(120, -200)).toBe(DATA_GRID_COL_MIN_WIDTH);
     expect(resizeDataGridColumnWidth(120, 30)).toBe(150);

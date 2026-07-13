@@ -79,13 +79,19 @@ function displaySampleValue(value: CellValue): string | null {
 // 取排序后第 percentile 百分位的值
 export function percentileValue(values: number[], percentile: number): number {
   if (values.length === 0) return 0;
-  if (percentile >= 100 || values.length === 1) return values[values.length - 1];
+  // P100 must be independent of input order and does not require sorting.
+  if (percentile >= 100) {
+    let maximum = values[0];
+    for (let index = 1; index < values.length; index++) maximum = Math.max(maximum, values[index]);
+    return maximum;
+  }
+  if (values.length === 1) return values[0];
   const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.min(sorted.length - 1, Math.floor((percentile / 100) * sorted.length));
   return sorted[idx];
 }
 
-export function calculateDataGridColumnWidth(options: { columnName: string; sampleValues: readonly CellValue[]; maxWidth?: number; valueTextLimit?: number; density?: ColumnWidthDensity; compactColumnHeaderActions?: boolean }): number {
+export function calculateDataGridColumnWidth(options: { columnName: string; sampleValues: readonly CellValue[]; maxWidth?: number; valueTextLimit?: number; density?: ColumnWidthDensity; compactColumnHeaderActions?: boolean; includeValues?: boolean }): number {
   const density = options.density ?? "standard";
   const preset = COLUMN_WIDTH_DENSITY_PRESETS[density];
   const maxAllowedWidth = options.maxWidth ?? preset.maxWidth;
@@ -93,8 +99,8 @@ export function calculateDataGridColumnWidth(options: { columnName: string; samp
   const headerControl = options.compactColumnHeaderActions ? preset.headerControlWidthCompact : preset.headerControlWidth;
   const headerWidth = estimateTextWidth(options.columnName, headerControl, preset.charWidth);
 
-  // 紧凑模式：以字段名为基准，值不参与撑宽，仅超长时截断到 maxWidth
-  if (density === "compact") {
+  // Compact defaults to header-only sizing, while explicit auto-fit still measures values.
+  if (density === "compact" && !options.includeValues) {
     return Math.max(DATA_GRID_COL_MIN_WIDTH, Math.min(maxAllowedWidth, Math.round(headerWidth)));
   }
 

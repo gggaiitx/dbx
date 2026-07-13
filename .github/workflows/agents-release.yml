@@ -80,7 +80,7 @@ jobs:
             8
             21
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew shadowJar
+      - run: ./gradlew shadowJar --parallel
         working-directory: agents
       - run: python3 scripts/validate_agent_jars.py
         working-directory: agents

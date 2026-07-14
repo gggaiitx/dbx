@@ -1991,9 +1991,9 @@ where
             Err(err) => {
                 let action = pool_error_action(db_type, &err);
                 results.push(ExecuteMultiResult::execution_error(error_query_result(err)));
-                // When continue_on_error is enabled, keep executing remaining statements
-                // after a failure. Otherwise (the default), stop immediately.
-                if !continue_on_error {
+                // Statement errors are safe to collect, but connection-level failures leave
+                // the protocol state unusable and must still trigger pool cleanup.
+                if !continue_on_error || action != PoolErrorAction::Keep {
                     return (results, Some(action));
                 }
             }
@@ -3262,6 +3262,48 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert!(results[1].execution_error);
         assert_eq!(error_action, Some(PoolErrorAction::Keep));
+    }
+
+    #[tokio::test]
+    async fn mysql_batch_continues_after_statement_errors_when_enabled() {
+        let statements = vec!["first".to_string(), "fails".to_string(), "third".to_string()];
+        let mut executor = FakeMysqlBatchExecutor {
+            outcomes: std::collections::VecDeque::from([
+                Ok(empty_query_result(0)),
+                Err("Duplicate entry".to_string()),
+                Ok(empty_query_result(0)),
+            ]),
+            executed: Vec::new(),
+        };
+
+        let (results, error_action) =
+            execute_mysql_batch_statements(&mut executor, &statements, Some(DatabaseType::Mysql), None, true).await;
+
+        assert_eq!(executor.executed, statements);
+        assert_eq!(results.len(), 3);
+        assert!(results[1].execution_error);
+        assert_eq!(error_action, None);
+    }
+
+    #[tokio::test]
+    async fn mysql_batch_stops_on_connection_errors_when_continue_is_enabled() {
+        let statements = vec!["first".to_string(), "disconnects".to_string(), "must-not-run".to_string()];
+        let mut executor = FakeMysqlBatchExecutor {
+            outcomes: std::collections::VecDeque::from([
+                Ok(empty_query_result(0)),
+                Err("connection reset by peer".to_string()),
+                Ok(empty_query_result(0)),
+            ]),
+            executed: Vec::new(),
+        };
+
+        let (results, error_action) =
+            execute_mysql_batch_statements(&mut executor, &statements, Some(DatabaseType::Mysql), None, true).await;
+
+        assert_eq!(executor.executed, vec!["first", "disconnects"]);
+        assert_eq!(results.len(), 2);
+        assert!(results[1].execution_error);
+        assert_eq!(error_action, Some(PoolErrorAction::ReconnectAndRetry));
     }
 
     #[test]

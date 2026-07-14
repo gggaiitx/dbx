@@ -3216,6 +3216,8 @@ export default withEnglishFallback({
     sqlSemanticDiagnosticsEnabledDescription: "Quando ativado, o editor relata problemas semânticos como tabelas e colunas desconhecidas. Desative para reduzir a análise e verificações de metadados em SQL grande.",
     confirmDangerousSqlExecution: "Confirmar antes de SQL perigoso",
     confirmDangerousSqlExecutionDescription: "Quando desativado, ALTER, DROP, DELETE, TRUNCATE e outros SQL perigosos são executados sem a caixa de diálogo de aviso.",
+    continueOnErrorOnBatch: "Continuar em erro",
+    continueOnErrorOnBatchDescription: "Quando ativado, a execução de múltiplas instruções continua após um erro em vez de parar na primeira falha.",
     confirmUnsavedSqlClose: "Confirmar antes de fechar SQL não salvo",
     confirmUnsavedSqlCloseDescription: "Quando desativado, abas SQL com edições não salvas são fechadas ou o app é encerrado sem a caixa de diálogo de confirmação de salvamento.",
     prefillNewQueryWithSelect: "Preencher nova consulta com SELECT *",

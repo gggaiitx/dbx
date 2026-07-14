@@ -30,7 +30,7 @@ vi.mock("@/stores/connectionStore", () => ({
 
 vi.mock("@/stores/settingsStore", () => ({
   useSettingsStore: () => ({
-    editorSettings: { autoCalculateTotalRows: false, pageSize: 100 },
+    editorSettings: { autoCalculateTotalRows: false, pageSize: 100, continueOnErrorOnBatch: false },
   }),
 }));
 
@@ -137,5 +137,16 @@ describe("queryStore multi-statement errors", () => {
     const tab = store.tabs.find((item) => item.id === tabId)!;
     expect(tab.activeResultIndex).toBe(0);
     expect(tab.result?.columns).toEqual(["value"]);
+  });
+
+  it("passes continueOnError=false from settings to executeMulti by default", async () => {
+    mocks.executeMulti.mockResolvedValue([{ columns: ["value"], rows: [[1]], affected_rows: 0, execution_time_ms: 1 }]);
+    const { useQueryStore } = await import("@/stores/queryStore");
+    const store = useQueryStore();
+    const tabId = store.createTab("mysql-1", "app", "Query");
+
+    await store.executeTabSql(tabId, "SELECT 1");
+
+    expect(mocks.executeMulti).toHaveBeenCalledWith("mysql-1", "app", "SELECT 1", undefined, expect.any(String), expect.objectContaining({ continueOnError: false }));
   });
 });

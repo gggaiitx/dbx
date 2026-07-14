@@ -3425,6 +3425,8 @@ export default withEnglishFallback({
     sqlSemanticDiagnosticsEnabledDescription: "开启后，编辑器会提示未知表、字段等语义问题；关闭可减少 SQL 解析和元数据检查的性能开销。",
     confirmDangerousSqlExecution: "执行危险 SQL 前弹出确认",
     confirmDangerousSqlExecutionDescription: "关闭后，ALTER、DROP、DELETE、TRUNCATE 等危险 SQL 将直接执行。",
+    continueOnErrorOnBatch: "批量执行遇错继续",
+    continueOnErrorOnBatchDescription: "开启后，多条 SQL 批量执行时遇到错误将继续执行后续语句，而非中断。",
     confirmUnsavedSqlClose: "关闭未保存 SQL 前弹出确认",
     confirmUnsavedSqlCloseDescription: "关闭后，有未保存内容的 SQL 标签页会直接关闭或退出，不再弹出保存确认。",
     prefillNewQueryWithSelect: "新建查询时预填充 SELECT 语句",

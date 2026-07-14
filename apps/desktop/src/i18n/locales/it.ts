@@ -3214,6 +3214,8 @@ export default withEnglishFallback({
     sqlSemanticDiagnosticsEnabledDescription: "Se abilitata, l'editor segnala problemi semantici come tabelle e colonne sconosciute. Disabilitala per ridurre l'analisi e i controlli dei metadati per file SQL di grandi dimensioni.",
     confirmDangerousSqlExecution: "Conferma prima di SQL pericoloso",
     confirmDangerousSqlExecutionDescription: "Se disattivato, ALTER, DROP, DELETE, TRUNCATE e altri SQL pericolosi verranno eseguiti senza la finestra di avviso.",
+    continueOnErrorOnBatch: "Continua in caso di errore",
+    continueOnErrorOnBatchDescription: "Se abilitato, l'esecuzione di più istruzioni continua dopo un errore invece di interrompersi al primo fallimento.",
     confirmUnsavedSqlClose: "Conferma prima di chiudere SQL non salvato",
     confirmUnsavedSqlCloseDescription: "Se disattivato, le schede SQL con modifiche non salvate verranno chiuse o usciranno senza la finestra di conferma di salvataggio.",
     prefillNewQueryWithSelect: "Precompila nuova query con SELECT *",

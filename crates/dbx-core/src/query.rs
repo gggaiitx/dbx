@@ -305,6 +305,10 @@ pub struct QueryExecutionOptions {
     /// (BEGIN … COMMIT) instead of auto-commit mode. `None` and `Some(false)` behave
     /// identically — auto-commit for each statement.
     pub use_transaction: Option<bool>,
+    /// When `true`, multi-statement execution continues after an error instead of
+    /// stopping at the first failure. Currently affects MySQL-protocol batch execution;
+    /// other databases already continue on error.
+    pub continue_on_error: bool,
 }
 
 fn query_result_row_limit(max_rows: Option<usize>) -> usize {
@@ -1970,6 +1974,7 @@ async fn execute_mysql_batch_statements<E>(
     statements: &[String],
     db_type: Option<DatabaseType>,
     cancel_token: Option<CancellationToken>,
+    continue_on_error: bool,
 ) -> (Vec<ExecuteMultiResult>, Option<PoolErrorAction>)
 where
     E: MysqlBatchStatementExecutor,
@@ -1986,8 +1991,11 @@ where
             Err(err) => {
                 let action = pool_error_action(db_type, &err);
                 results.push(ExecuteMultiResult::execution_error(error_query_result(err)));
-                // Do not run dependent statements after any MySQL-protocol statement fails.
-                return (results, Some(action));
+                // When continue_on_error is enabled, keep executing remaining statements
+                // after a failure. Otherwise (the default), stop immediately.
+                if !continue_on_error {
+                    return (results, Some(action));
+                }
             }
         }
     }
@@ -2039,7 +2047,8 @@ async fn execute_multi_mysql(
         dialect,
     };
     let (results, error_action) =
-        execute_mysql_batch_statements(&mut executor, statements, db_type, cancel_token).await;
+        execute_mysql_batch_statements(&mut executor, statements, db_type, cancel_token, options.continue_on_error)
+            .await;
     drop(executor);
 
     if matches!(error_action, Some(PoolErrorAction::Discard | PoolErrorAction::ReconnectAndRetry)) {
@@ -3247,7 +3256,7 @@ mod tests {
         };
 
         let (results, error_action) =
-            execute_mysql_batch_statements(&mut executor, &statements, Some(DatabaseType::Mysql), None).await;
+            execute_mysql_batch_statements(&mut executor, &statements, Some(DatabaseType::Mysql), None, false).await;
 
         assert_eq!(executor.executed, vec!["first", "fails"]);
         assert_eq!(results.len(), 2);

@@ -3204,6 +3204,8 @@ export default withEnglishFallback({
     sqlSemanticDiagnosticsEnabledDescription: "有効時、エディタは不明なテーブルや列などの意味的な問題を表示します。大きなSQLの解析とメタデータ確認の負荷を減らすには無効にします。",
     confirmDangerousSqlExecution: "危険なSQLの前に確認",
     confirmDangerousSqlExecutionDescription: "無効時、ALTER、DROP、DELETE、TRUNCATEなどの危険なSQLが警告ダイアログなしで実行されます。",
+    continueOnErrorOnBatch: "エラー時も継続",
+    continueOnErrorOnBatchDescription: "有効にすると、複数SQL文の実行時にエラーが発生しても、最初の失敗で停止せずに後続の文を実行し続けます。",
     confirmUnsavedSqlClose: "未保存のSQLを閉じる前に確認",
     confirmUnsavedSqlCloseDescription: "無効時、未保存の編集があるSQLタブは保存確認ダイアログなしで閉じるか終了します。",
     prefillNewQueryWithSelect: "新規クエリに SELECT を自動入力",

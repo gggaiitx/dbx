@@ -3426,6 +3426,8 @@ export default {
     sqlSemanticDiagnosticsEnabledDescription: "When enabled, the editor reports semantic issues such as unknown tables and columns. Disable it to reduce parsing and metadata checks for large SQL.",
     confirmDangerousSqlExecution: "Confirm before dangerous SQL",
     confirmDangerousSqlExecutionDescription: "When disabled, ALTER, DROP, DELETE, TRUNCATE, and other dangerous SQL run without the warning dialog.",
+    continueOnErrorOnBatch: "Continue on Error",
+    continueOnErrorOnBatchDescription: "When enabled, multi-statement execution continues after an error instead of stopping at the first failure.",
     confirmUnsavedSqlClose: "Confirm before closing unsaved SQL",
     confirmUnsavedSqlCloseDescription: "When disabled, SQL tabs with unsaved edits close or quit without the save confirmation dialog.",
     prefillNewQueryWithSelect: "Prefill new query with SELECT *",

@@ -3065,6 +3065,8 @@ export default withEnglishFallback({
     sqlSemanticDiagnosticsEnabledDescription: "開啟後，編輯器會提示未知資料表、欄位等語意問題；關閉可減少 SQL 解析和中繼資料檢查的效能負擔。",
     confirmDangerousSqlExecution: "執行危險 SQL 前彈出確認",
     confirmDangerousSqlExecutionDescription: "關閉後，ALTER、DROP、DELETE、TRUNCATE 等危險 SQL 會直接執行。",
+    continueOnErrorOnBatch: "批次執行遇錯繼續",
+    continueOnErrorOnBatchDescription: "開啟後，多條 SQL 批次執行時遇到錯誤將繼續執行後續語句，而非中斷。",
     confirmUnsavedSqlClose: "關閉未儲存 SQL 前彈出確認",
     confirmUnsavedSqlCloseDescription: "關閉後，有未儲存內容的 SQL 分頁會直接關閉或結束，不再彈出儲存確認。",
     prefillNewQueryWithSelect: "新建查詢時預填 SELECT 語句",

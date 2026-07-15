@@ -293,6 +293,8 @@ const COLUMN_WIDTH_DENSITIES = ["compact", "standard", "comfortable"] as const;
 export type ColumnWidthDensity = (typeof COLUMN_WIDTH_DENSITIES)[number];
 const CELL_DETAIL_PANEL_LAYOUTS = ["bottom", "right"] as const;
 export type CellDetailPanelLayout = (typeof CELL_DETAIL_PANEL_LAYOUTS)[number];
+const TAB_LAYOUT_MODES = ["scroll", "wrap"] as const;
+export type TabLayoutMode = (typeof TAB_LAYOUT_MODES)[number];
 const DATA_GRID_RENDER_MODES = ["dom", "canvas"] as const;
 export type DataGridRenderMode = (typeof DATA_GRID_RENDER_MODES)[number];
 const DATA_GRID_SEARCH_MODES = ["filter", "highlight"] as const;
@@ -385,6 +387,7 @@ export interface EditorSettings {
   confirmDangerousSqlExecution: boolean;
   confirmUnsavedSqlClose: boolean;
   compactTabTitle: boolean;
+  tabLayout: TabLayoutMode;
   appLayout: "separated" | "classic";
   pageSize: number;
   infiniteScroll: boolean;
@@ -523,6 +526,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   confirmDangerousSqlExecution: true,
   confirmUnsavedSqlClose: true,
   compactTabTitle: false,
+  tabLayout: "scroll",
   appLayout: "classic",
   pageSize: 100,
   infiniteScroll: false,
@@ -601,6 +605,10 @@ function normalizeStructureEditorDensity(value: unknown): StructureEditorDensity
 }
 function normalizeColumnWidthDensity(value: unknown): ColumnWidthDensity {
   return COLUMN_WIDTH_DENSITIES.includes(value as ColumnWidthDensity) ? (value as ColumnWidthDensity) : DEFAULT_EDITOR_SETTINGS.columnWidthDensity;
+}
+
+function normalizeTabLayout(value: unknown): TabLayoutMode {
+  return TAB_LAYOUT_MODES.includes(value as TabLayoutMode) ? (value as TabLayoutMode) : DEFAULT_EDITOR_SETTINGS.tabLayout;
 }
 
 function normalizeCellDetailPanelLayout(value: unknown): CellDetailPanelLayout {
@@ -761,6 +769,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     confirmDangerousSqlExecution: settings.confirmDangerousSqlExecution ?? DEFAULT_EDITOR_SETTINGS.confirmDangerousSqlExecution,
     confirmUnsavedSqlClose: settings.confirmUnsavedSqlClose ?? DEFAULT_EDITOR_SETTINGS.confirmUnsavedSqlClose,
     compactTabTitle: settings.compactTabTitle ?? DEFAULT_EDITOR_SETTINGS.compactTabTitle,
+    tabLayout: normalizeTabLayout(settings.tabLayout),
     appLayout: settings.appLayout ?? DEFAULT_EDITOR_SETTINGS.appLayout,
     pageSize: normalizeResultPageSize(settings.pageSize),
     infiniteScroll: settings.infiniteScroll ?? DEFAULT_EDITOR_SETTINGS.infiniteScroll,
@@ -1010,6 +1019,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.confirmDangerousSqlExecution !== undefined) editorSettings.value.confirmDangerousSqlExecution = partial.confirmDangerousSqlExecution;
     if (partial.confirmUnsavedSqlClose !== undefined) editorSettings.value.confirmUnsavedSqlClose = partial.confirmUnsavedSqlClose;
     if (partial.compactTabTitle !== undefined) editorSettings.value.compactTabTitle = partial.compactTabTitle;
+    if (partial.tabLayout !== undefined) editorSettings.value.tabLayout = normalizeTabLayout(partial.tabLayout);
     if (partial.appLayout !== undefined) editorSettings.value.appLayout = partial.appLayout;
     if (partial.pageSize !== undefined) editorSettings.value.pageSize = normalizeResultPageSize(partial.pageSize);
     if (partial.infiniteScroll !== undefined) editorSettings.value.infiniteScroll = partial.infiniteScroll;

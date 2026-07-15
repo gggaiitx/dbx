@@ -269,6 +269,7 @@ const editConfirmDangerousSqlExecution = ref(settingsStore.editorSettings.confir
 const editContinueOnErrorOnBatch = ref(settingsStore.editorSettings.continueOnErrorOnBatch);
 const editConfirmUnsavedSqlClose = ref(settingsStore.editorSettings.confirmUnsavedSqlClose);
 const editAppLayout = ref(settingsStore.editorSettings.appLayout);
+const editTabLayout = ref(settingsStore.editorSettings.tabLayout);
 const editShowTrayIcon = ref(settingsStore.desktopSettings.show_tray_icon);
 const editQuitOnClose = ref(settingsStore.desktopSettings.quit_on_close);
 const desktopCloseBehaviorResetPending = ref(false);
@@ -404,6 +405,7 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     continueOnErrorOnBatch: editContinueOnErrorOnBatch.value,
     confirmUnsavedSqlClose: editConfirmUnsavedSqlClose.value,
     appLayout: editAppLayout.value,
+    tabLayout: editTabLayout.value,
     showColumnCommentsInHeader: editShowColumnCommentsInHeader.value,
     showColumnTypesInHeader: editShowColumnTypesInHeader.value,
     compactColumnHeaderActions: editCompactColumnHeaderActions.value,
@@ -680,6 +682,7 @@ function syncEditorSettingsDraftFromStore() {
   editContinueOnErrorOnBatch.value = settingsStore.editorSettings.continueOnErrorOnBatch;
   editConfirmUnsavedSqlClose.value = settingsStore.editorSettings.confirmUnsavedSqlClose;
   editAppLayout.value = settingsStore.editorSettings.appLayout;
+  editTabLayout.value = settingsStore.editorSettings.tabLayout;
   editShowColumnCommentsInHeader.value = settingsStore.editorSettings.showColumnCommentsInHeader;
   editShowColumnTypesInHeader.value = settingsStore.editorSettings.showColumnTypesInHeader;
   editCompactColumnHeaderActions.value = settingsStore.editorSettings.compactColumnHeaderActions;
@@ -878,6 +881,7 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editCustomThemes.value = [...DEFAULT_EDITOR_SETTINGS.customThemes];
     editActiveCustomThemeId.value = DEFAULT_EDITOR_SETTINGS.activeCustomThemeId;
     editAppLayout.value = DEFAULT_EDITOR_SETTINGS.appLayout;
+    editTabLayout.value = DEFAULT_EDITOR_SETTINGS.tabLayout;
     editShowTrayIcon.value = DEFAULT_DESKTOP_SETTINGS.show_tray_icon;
     editQuitOnClose.value = DEFAULT_DESKTOP_SETTINGS.quit_on_close;
     desktopCloseBehaviorResetPending.value = true;
@@ -1240,6 +1244,10 @@ function clearShortcut(actionId: ShortcutActionId) {
 
 function setAppLayout(value: InterfaceLayout) {
   editAppLayout.value = value;
+}
+
+function setTabLayout(value: "scroll" | "wrap") {
+  editTabLayout.value = value;
 }
 
 function setSidebarActivation(value: "single" | "double") {
@@ -3123,6 +3131,26 @@ onUnmounted(cleanupPreviewEditor);
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div class="settings-appearance-group">
+                <Label>{{ t("settings.tabLayout") }}</Label>
+                <div class="settings-appearance-choice-grid">
+                  <Button type="button" variant="outline" class="settings-choice-card h-auto justify-start border p-3" :class="editTabLayout === 'scroll' ? 'settings-choice-card--selected border-blue-300 ring-2 ring-blue-300/50' : ''" @click="setTabLayout('scroll')">
+                    <div class="w-full min-w-0 text-left">
+                      <div class="text-sm font-medium">{{ t("settings.tabLayoutScroll") }}</div>
+                      <div class="text-xs text-muted-foreground">{{ t("settings.tabLayoutScrollDescription") }}</div>
+                    </div>
+                  </Button>
+                  <Button type="button" variant="outline" class="settings-choice-card h-auto justify-start border p-3" :class="editTabLayout === 'wrap' ? 'settings-choice-card--selected border-blue-300 ring-2 ring-blue-300/50' : ''" @click="setTabLayout('wrap')">
+                    <div class="w-full min-w-0 text-left">
+                      <div class="text-sm font-medium">{{ t("settings.tabLayoutWrap") }}</div>
+                      <div class="text-xs text-muted-foreground">{{ t("settings.tabLayoutWrapDescription") }}</div>
+                    </div>
                   </Button>
                 </div>
               </div>

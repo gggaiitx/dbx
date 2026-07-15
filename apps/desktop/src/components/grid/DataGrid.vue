@@ -68,7 +68,7 @@ import {
   TableProperties,
   Database,
   Columns3,
-  Columns3Cog,
+  PencilRuler,
   Timer,
 } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
@@ -10657,7 +10657,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                 </Button>
               </div>
               <Button v-if="canOpenTableStructureEditor" variant="ghost" size="sm" class="table-info-action-button h-6 px-2 text-xs" :title="t('contextMenu.editStructure')" :aria-label="t('contextMenu.editStructure')" @click="openTableStructureEditor">
-                <Columns3Cog class="w-3 h-3" />
+                <PencilRuler class="w-3 h-3" />
                 <span class="table-info-action-label">{{ t("contextMenu.editStructure") }}</span>
               </Button>
               <Button variant="ghost" size="icon" class="h-5 w-5" @click="showTableInfo = false">

@@ -5104,7 +5104,16 @@ pub fn postgres_object_source_sql(
     kind: &db::ObjectSourceKind,
     signature: Option<&str>,
 ) -> String {
-    postgres_object_source_sql_inner(schema, name, kind, signature, true)
+    postgres_object_source_sql_inner(schema, name, kind, signature, true, false)
+}
+
+fn opengauss_object_source_sql(
+    schema: &str,
+    name: &str,
+    kind: &db::ObjectSourceKind,
+    signature: Option<&str>,
+) -> String {
+    postgres_object_source_sql_inner(schema, name, kind, signature, true, true)
 }
 
 fn postgres_object_source_sql_without_relispopulated(
@@ -5113,12 +5122,18 @@ fn postgres_object_source_sql_without_relispopulated(
     kind: &db::ObjectSourceKind,
     signature: Option<&str>,
 ) -> String {
-    postgres_object_source_sql_inner(schema, name, kind, signature, false)
+    postgres_object_source_sql_inner(schema, name, kind, signature, false, false)
 }
 
-fn postgres_function_object_source_sql_without_prokind(schema: &str, name: &str) -> String {
+fn postgres_function_object_source_sql_without_prokind(
+    schema: &str,
+    name: &str,
+    unwrap_opengauss_record: bool,
+) -> String {
+    let source_expression =
+        if unwrap_opengauss_record { "(pg_get_functiondef(p.oid)).definition" } else { "pg_get_functiondef(p.oid)" };
     format!(
-        "SELECT pg_get_functiondef(p.oid) \
+        "SELECT {source_expression} \
          FROM pg_proc p \
          JOIN pg_namespace n ON n.oid = p.pronamespace \
          WHERE n.nspname = {} AND p.proname = {} AND NOT p.proisagg AND NOT p.proiswindow \
@@ -5128,12 +5143,41 @@ fn postgres_function_object_source_sql_without_prokind(schema: &str, name: &str)
     )
 }
 
+fn opengauss_routine_source_fallback_sqls(
+    schema: &str,
+    name: &str,
+    object_type: &db::ObjectSourceKind,
+    signature: Option<&str>,
+    primary_err: &str,
+) -> Vec<(&'static str, String)> {
+    if !matches!(object_type, db::ObjectSourceKind::Function) {
+        return vec![("text-return", postgres_object_source_sql(schema, name, object_type, signature))];
+    }
+
+    let mut fallbacks = Vec::with_capacity(3);
+    if !postgres_missing_prokind_error(primary_err) {
+        fallbacks.push(("text-return", postgres_object_source_sql(schema, name, object_type, signature)));
+    }
+    // Legacy Gauss-family catalogs vary independently in pg_get_functiondef's return type and prokind support.
+    // Keep both no-prokind expressions so a server with both compatibility differences still succeeds.
+    fallbacks.push((
+        "record-return without prokind",
+        postgres_function_object_source_sql_without_prokind(schema, name, true),
+    ));
+    fallbacks.push((
+        "text-return without prokind",
+        postgres_function_object_source_sql_without_prokind(schema, name, false),
+    ));
+    fallbacks
+}
+
 fn postgres_object_source_sql_inner(
     schema: &str,
     name: &str,
     kind: &db::ObjectSourceKind,
     signature: Option<&str>,
     include_relispopulated: bool,
+    unwrap_opengauss_record: bool,
 ) -> String {
     match kind {
         db::ObjectSourceKind::View | db::ObjectSourceKind::MaterializedView => {
@@ -5164,11 +5208,16 @@ fn postgres_object_source_sql_inner(
         }
         db::ObjectSourceKind::Procedure | db::ObjectSourceKind::Function => {
             let prokind = if matches!(kind, db::ObjectSourceKind::Procedure) { "p" } else { "f" };
+            let source_expression = if unwrap_opengauss_record {
+                "(pg_get_functiondef(p.oid)).definition"
+            } else {
+                "pg_get_functiondef(p.oid)"
+            };
             let signature_filter = signature
                 .map(|value| format!(" AND pg_get_function_identity_arguments(p.oid) = {}", sql_string(value)))
                 .unwrap_or_default();
             format!(
-                "SELECT pg_get_functiondef(p.oid) \
+                "SELECT {source_expression} \
                  FROM pg_proc p \
                  JOIN pg_namespace n ON n.oid = p.pronamespace \
                  WHERE n.nspname = {} AND p.proname = {} AND p.prokind = '{}'{} \
@@ -5396,7 +5445,10 @@ async fn get_object_source_once(
                     // only view
                     db::questdb::questdb_object_source(pool, name).await?
                 }
-                PoolKind::Postgres(pool) => postgres_object_source(pool, schema, name, &object_type, signature).await?,
+                PoolKind::Postgres(pool) => {
+                    let unwrap_opengauss_record = db_config.as_ref().is_some_and(is_opengauss_family_config);
+                    postgres_object_source(pool, schema, name, &object_type, signature, unwrap_opengauss_record).await?
+                }
                 PoolKind::Sqlite(pool) => first_string_cell(
                     db::sqlite::execute_query(pool, &sqlite_object_source_sql(schema, name, &object_type)).await?,
                 )?,
@@ -5750,8 +5802,13 @@ async fn postgres_object_source(
     name: &str,
     object_type: &db::ObjectSourceKind,
     signature: Option<&str>,
+    unwrap_opengauss_record: bool,
 ) -> Result<String, String> {
-    let sql = postgres_object_source_sql(schema, name, object_type, signature);
+    let sql = if unwrap_opengauss_record {
+        opengauss_object_source_sql(schema, name, object_type, signature)
+    } else {
+        postgres_object_source_sql(schema, name, object_type, signature)
+    };
     match db::postgres::execute_query(pool, &sql).await.and_then(first_string_cell) {
         Ok(source) => Ok(source),
         Err(primary_err)
@@ -5765,10 +5822,25 @@ async fn postgres_object_source(
                 .map_err(|fallback_err| format!("{primary_err}; relispopulated fallback failed: {fallback_err}"))
         }
         Err(primary_err)
+            if unwrap_opengauss_record
+                && matches!(object_type, db::ObjectSourceKind::Procedure | db::ObjectSourceKind::Function) =>
+        {
+            let mut errors = vec![primary_err];
+            for (label, fallback_sql) in
+                opengauss_routine_source_fallback_sqls(schema, name, object_type, signature, &errors[0])
+            {
+                match db::postgres::execute_query(pool, &fallback_sql).await.and_then(first_string_cell) {
+                    Ok(source) => return Ok(source),
+                    Err(fallback_err) => errors.push(format!("{label} fallback failed: {fallback_err}")),
+                }
+            }
+            Err(errors.join("; "))
+        }
+        Err(primary_err)
             if postgres_missing_prokind_error(&primary_err)
                 && matches!(object_type, db::ObjectSourceKind::Function) =>
         {
-            let fallback_sql = postgres_function_object_source_sql_without_prokind(schema, name);
+            let fallback_sql = postgres_function_object_source_sql_without_prokind(schema, name, false);
             db::postgres::execute_query(pool, &fallback_sql)
                 .await
                 .and_then(first_string_cell)
@@ -5851,12 +5923,62 @@ mod object_source_tests {
 
     #[test]
     fn builds_postgres_function_source_sql_without_prokind_for_legacy_catalogs() {
-        let sql = postgres_function_object_source_sql_without_prokind("public", "recalc_score");
+        let sql = postgres_function_object_source_sql_without_prokind("public", "recalc_score", false);
 
         assert_eq!(
             sql,
             "SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'recalc_score' AND NOT p.proisagg AND NOT p.proiswindow ORDER BY p.oid LIMIT 1"
         );
+    }
+
+    #[test]
+    fn builds_opengauss_routine_source_sql_from_record_definition() {
+        assert_eq!(
+            opengauss_object_source_sql("public", "recalc_score", &ObjectSourceKind::Function, None),
+            "SELECT (pg_get_functiondef(p.oid)).definition FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'recalc_score' AND p.prokind = 'f' ORDER BY p.oid LIMIT 1"
+        );
+        assert_eq!(
+            opengauss_object_source_sql(
+                "public",
+                "refresh_cache",
+                &ObjectSourceKind::Procedure,
+                Some("integer"),
+            ),
+            "SELECT (pg_get_functiondef(p.oid)).definition FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'refresh_cache' AND p.prokind = 'p' AND pg_get_function_identity_arguments(p.oid) = 'integer' ORDER BY p.oid LIMIT 1"
+        );
+
+        assert_eq!(
+            postgres_function_object_source_sql_without_prokind("public", "recalc_score", true),
+            "SELECT (pg_get_functiondef(p.oid)).definition FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'recalc_score' AND NOT p.proisagg AND NOT p.proiswindow ORDER BY p.oid LIMIT 1"
+        );
+    }
+
+    #[test]
+    fn composes_opengauss_text_return_and_missing_prokind_fallbacks() {
+        let text_return = opengauss_routine_source_fallback_sqls(
+            "public",
+            "recalc_score",
+            &ObjectSourceKind::Function,
+            None,
+            "column notation .definition applied to type text",
+        );
+        assert_eq!(text_return.len(), 3);
+        assert_eq!(text_return[0].0, "text-return");
+        assert!(text_return[0].1.contains("p.prokind = 'f'"));
+        assert_eq!(text_return[2].0, "text-return without prokind");
+        assert!(!text_return[2].1.contains("p.prokind"));
+        assert!(!text_return[2].1.contains(".definition"));
+
+        let missing_prokind = opengauss_routine_source_fallback_sqls(
+            "public",
+            "recalc_score",
+            &ObjectSourceKind::Function,
+            None,
+            "column p.prokind does not exist",
+        );
+        assert_eq!(missing_prokind.len(), 2);
+        assert_eq!(missing_prokind[0].0, "record-return without prokind");
+        assert_eq!(missing_prokind[1].0, "text-return without prokind");
     }
 
     #[test]

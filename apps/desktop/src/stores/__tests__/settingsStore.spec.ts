@@ -18,6 +18,13 @@ describe("normalizeEditorSettings", () => {
     expect(normalizeEditorSettings({ autoAliasTables: false }).autoAliasTables).toBe(false);
   });
 
+  it("defaults sidebar connection sorting to manual order and preserves valid alphabetical modes", () => {
+    expect(normalizeEditorSettings({}).sidebarConnectionSortMode).toBe("manual");
+    expect(normalizeEditorSettings({ sidebarConnectionSortMode: "asc" }).sidebarConnectionSortMode).toBe("asc");
+    expect(normalizeEditorSettings({ sidebarConnectionSortMode: "desc" }).sidebarConnectionSortMode).toBe("desc");
+    expect(normalizeEditorSettings({ sidebarConnectionSortMode: "invalid" as any }).sidebarConnectionSortMode).toBe("manual");
+  });
+
   it("shows the current statement frame by default", () => {
     expect(normalizeEditorSettings({}).showCurrentStatementFrame).toBe(true);
   });
@@ -254,6 +261,25 @@ describe("settingsStore MCP policy persistence", () => {
     rejectSave(new Error("save failed"));
     await expect(update).rejects.toThrow("save failed");
     expect(store.mcpGlobalPolicy).toEqual(previous);
+  });
+});
+
+describe("settingsStore sidebar connection sort persistence", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    setActivePinia(createPinia());
+  });
+
+  it("persists the selected alphabetical sort mode", async () => {
+    const saveEditorSettings = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@/lib/backend/api", () => ({ saveEditorSettings }));
+
+    const { useSettingsStore } = await import("@/stores/settingsStore");
+    const store = useSettingsStore();
+    store.updateEditorSettings({ sidebarConnectionSortMode: "desc" });
+
+    expect(store.editorSettings.sidebarConnectionSortMode).toBe("desc");
+    expect(saveEditorSettings).toHaveBeenCalledWith(expect.objectContaining({ sidebarConnectionSortMode: "desc" }));
   });
 });
 

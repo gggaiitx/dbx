@@ -453,17 +453,23 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
       });
       return;
     }
-    const key = insertCopyKey(excludePrimaryKeys, insertMode);
-    const current = insertCopyCache(excludePrimaryKeys, insertMode);
-    if (current.ready && current.key === key) return current.text;
-    if (current.loading && current.key === key && current.promise) return current.promise;
-
     const data: CopyInsertData = {
       columns: columns.value,
       sourceColumns: sourceColumns.value,
       columnTypes: columnTypes.value?.map((type) => type ?? undefined),
       rows,
     };
+    if (databaseType.value === "mongodb") {
+      // Mongo documents can approach the 16 MiB BSON limit. Yield before the
+      // synchronous shell serialization so menu close/rendering is never held up.
+      await yieldToMainThread();
+      return buildCopyInsertStatement(data, excludePrimaryKeys, insertMode);
+    }
+
+    const key = insertCopyKey(excludePrimaryKeys, insertMode);
+    const current = insertCopyCache(excludePrimaryKeys, insertMode);
+    if (current.ready && current.key === key) return current.text;
+    if (current.loading && current.key === key && current.promise) return current.promise;
     const promise = Promise.resolve().then(async () => {
       const statement = await buildCopyInsertStatement(data, excludePrimaryKeys, insertMode);
       const latest = insertCopyCache(excludePrimaryKeys, insertMode);
@@ -537,6 +543,12 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
       });
       return;
     }
+    if (databaseType.value === "mongodb") {
+      // Keep context-menu work bounded; serialize the selected Mongo fields only
+      // after the user explicitly invokes the copy command.
+      await yieldToMainThread();
+      return buildCopyInsertStatement(data, false, insertMode);
+    }
     const key = selectionInsertCopyKey(insertMode);
     const current = selectionInsertCopyCache(insertMode);
     if (current.ready && current.key === key) return current.text;
@@ -584,10 +596,16 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     return cache.ready && cache.key === selectionInsertCopyKey(insertMode);
   }
 
-  function copySelectionAsInsert(insertMode: DataGridCopyInsertMode = "merged"): boolean {
-    if (!canCopyPreparedSelectionInsert(insertMode)) return false;
-    void copyText(selectionInsertCopyCache(insertMode).text);
-    return true;
+  async function copySelectionAsInsert(insertMode: DataGridCopyInsertMode = "merged"): Promise<boolean> {
+    try {
+      const statement = await prepareSelectionAsInsertStatement(insertMode);
+      if (!statement) return false;
+      await copyText(statement);
+      return true;
+    } catch (error: any) {
+      toast(t("grid.copyFailed", { message: error?.message || String(error) }), 5000);
+      return false;
+    }
   }
 
   async function prefetchRowAsUpdateStatement() {
@@ -1562,6 +1580,10 @@ function formatMongoCopyInsertStatement(statement: string | undefined): string |
   } catch {
     return statement;
   }
+}
+
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function compactLocalTimestamp(date = new Date()): string {

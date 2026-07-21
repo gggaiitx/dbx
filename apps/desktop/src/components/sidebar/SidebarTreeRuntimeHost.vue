@@ -369,6 +369,14 @@ const {
 const {
   canDropMongoDatabase,
   canDropMongoCollection,
+  canRenameMongoCollection,
+  prepareRenameMongoCollectionDialog,
+  confirmRenameMongoCollection,
+  showRenameMongoCollectionDialog,
+  renameMongoCollectionName,
+  renameMongoCollectionError,
+  renameMongoCollectionPreview,
+  renameMongoCollectionLoading,
   mongoIndexNameForNode,
   canDropMongoIndexNode,
   canDropMongoIndex,
@@ -384,6 +392,7 @@ const {
   dropAllMongoIndexes,
   flushRedisDb,
   confirmFlushRedisDb,
+  confirmDropMongoDatabase,
   confirmDropMongoCollection,
   confirmDropMongoIndex,
   confirmDropAllMongoIndexes,
@@ -840,6 +849,10 @@ function requestRenameSelectedNode(): boolean {
     connectionStore.startEditing(editTarget.connectionId);
     return true;
   }
+  if (canRenameMongoCollection.value) {
+    openRenameMongoCollectionDialog();
+    return true;
+  }
   if (canRenameObject.value) {
     openRenameObjectDialog();
     return true;
@@ -849,6 +862,12 @@ function requestRenameSelectedNode(): boolean {
     return true;
   }
   return false;
+}
+
+function openRenameMongoCollectionDialog() {
+  claimTreeItemDialogOwnership();
+  routeTreeItemDialogController();
+  prepareRenameMongoCollectionDialog();
 }
 
 function requestEditSelectedConnection(): boolean {
@@ -2638,26 +2657,26 @@ function dropDatabase() {
 
 async function confirmDropDatabase() {
   const node = sidebarDangerTarget.value ?? activeNode.value;
-  if (!node.connectionId || dropDatabaseLoading.value) return;
+  if (node.type === "mongo-db") {
+    await confirmDropMongoDatabase();
+    return;
+  }
+
+  const connectionId = node.connectionId;
+  if (!connectionId || dropDatabaseLoading.value) return;
   dropDatabaseLoading.value = true;
   try {
-    await connectionStore.ensureConnected(node.connectionId);
-    if (node.type === "mongo-db" && node.database) {
-      await api.mongoDropDatabase(node.connectionId, node.database);
-      toast(t("contextMenu.dropDatabaseSuccess", { name: node.label }), 3000);
-      await connectionStore.loadMongoDatabases(node.connectionId);
-      showDropDatabaseConfirm.value = false;
-      return;
-    }
+    await connectionStore.ensureConnected(connectionId);
     const sql =
       dropDatabasePreviewSql.value ||
       (await buildDropDatabaseSql({
         databaseType: databaseTypeForNode(node),
         name: node.label,
       }));
-    await executeTreeNodeSqlWithProductionGuard(node, sql, { database: "" });
+    const executed = await executeTreeNodeSqlWithProductionGuard(node, sql, { database: "" });
+    if (!executed) return;
     toast(t("contextMenu.dropDatabaseSuccess", { name: node.label }), 3000);
-    await connectionStore.loadDatabases(node.connectionId, { force: true });
+    await connectionStore.loadDatabases(connectionId, { force: true });
     showDropDatabaseConfirm.value = false;
   } catch (e: any) {
     toast(t("contextMenu.tableOperationFailed", { message: e?.message || String(e) }), 5000);
@@ -3316,6 +3335,12 @@ function databaseSpecificDialogCapabilities() {
     editNacosNamespaceDesc,
     editNacosNamespaceLoading,
     confirmEditNacosNamespace,
+    showRenameMongoCollectionDialog,
+    renameMongoCollectionName,
+    renameMongoCollectionError,
+    renameMongoCollectionPreview,
+    renameMongoCollectionLoading,
+    confirmRenameMongoCollection,
     showCreateSchemaDialog,
     createSchemaName,
     confirmCreateSchema,
@@ -3792,6 +3817,14 @@ function buildSpecialSidebarMenu(context: SidebarMenuFactoryContext): boolean {
     items.push({ label: "", separator: true });
     items.push({ label: t("contextMenu.viewData"), action: toggle, icon: TableProperties });
     items.push({ label: t("contextMenu.newQuery"), action: newQuery, icon: TerminalSquare });
+    if (canRenameMongoCollection.value) {
+      items.push({
+        label: t("contextMenu.renameObject"),
+        action: openRenameMongoCollectionDialog,
+        icon: Pencil,
+        shortcut: shortcutRename,
+      });
+    }
     if (canDropAllMongoIndexes.value || canDropMongoCollection.value) {
       items.push({ label: "", separator: true });
       if (canDropAllMongoIndexes.value) {

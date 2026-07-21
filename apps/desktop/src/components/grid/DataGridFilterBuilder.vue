@@ -63,9 +63,9 @@ function handleColumnSearchKeydown(event: KeyboardEvent) {
         <div v-if="index > 0" class="flex justify-center">
           <Button variant="ghost" size="sm" class="h-6 px-2 text-[11px]" @click="emit('updateRule', rule.id, { conjunction: rule.conjunction === 'AND' ? 'OR' : 'AND' })">{{ rule.conjunction }}</Button>
         </div>
-        <div class="grid items-center gap-2" :class="usesExpandedLayout(rule.mode) ? 'grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto]'">
+        <div class="grid items-center gap-2" :class="usesExpandedLayout(rule.mode) ? 'grid-cols-[minmax(0,1.2fr)_minmax(80px,1fr)_auto]' : 'grid-cols-[minmax(0,1.2fr)_minmax(80px,1fr)_minmax(0,1.2fr)_auto]'">
           <Select :model-value="rule.columnName" :disabled="rule.disabled" @update:model-value="(value: any) => updateRuleColumn(rule.id, value)">
-            <SelectTrigger class="h-8 min-w-0 text-xs"><SelectValue :placeholder="t('grid.filterBuilderColumn')" /></SelectTrigger>
+            <SelectTrigger class="h-8 w-full min-w-0 overflow-hidden text-xs [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate" style="white-space: normal"><SelectValue :placeholder="t('grid.filterBuilderColumn')" /></SelectTrigger>
             <SelectContent position="popper" class="max-h-72" :hide-scroll-buttons="true">
               <SelectItem v-for="column in props.filteredColumns" :key="column" :value="column">{{ column }}</SelectItem>
               <div v-if="!props.filteredColumns.length" class="px-2 py-2 text-xs text-muted-foreground">{{ t("grid.filterBuilderNoMatchingColumns") }}</div>
@@ -84,7 +84,7 @@ function handleColumnSearchKeydown(event: KeyboardEvent) {
             </SelectContent>
           </Select>
           <Select :model-value="rule.mode" :disabled="rule.disabled" @update:model-value="(value: any) => emit('updateRule', rule.id, { mode: value as DataGridContextFilterMode })">
-            <SelectTrigger class="h-8 min-w-0 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger class="h-8 w-full min-w-0 overflow-hidden text-xs [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate" style="white-space: normal"><SelectValue /></SelectTrigger>
             <SelectContent
               ><SelectItem v-for="option in props.modeOptions" :key="option.value" :value="option.value">{{ t(option.labelKey) }}</SelectItem></SelectContent
             >

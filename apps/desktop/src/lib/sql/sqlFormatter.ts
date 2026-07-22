@@ -94,8 +94,6 @@ export async function formatSqlText(sql: string, dialect: SqlFormatDialect = "ge
  */
 export type SqlCompressDialect = SqlFormatDialect;
 
-const DOLLAR_QUOTE_RE = /\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$/;
-
 /**
  * 将 SQL 压缩成一行可执行文本：折叠所有空白（含换行）为单个空格，
  * 移除普通行注释（-- ...）与普通块注释（/* ... *\/），
@@ -116,11 +114,36 @@ export function compressSqlText(sql: string, dialect: SqlCompressDialect = "gene
   let i = 0;
 
   const isWhitespace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\r" || c === "\f" || c === "\v";
+  const isIdentifierPart = (c: string | undefined) => c !== undefined && /[A-Za-z0-9_$]/.test(c);
+  const isMysqlDashComment = (c: string | undefined) => c === undefined || c.charCodeAt(0) <= 32 || c.charCodeAt(0) === 127;
+  const supportsNestedBlockComments = dialect === "postgres" || dialect === "sqlserver" || dialect === "clickhouse";
+
+  const dollarQuoteTagAt = (position: number): string | null => {
+    if (sql[position] !== "$" || isIdentifierPart(sql[position - 1])) return null;
+    if (sql[position + 1] === "$") return "$$";
+    if (!/[A-Za-z_]/.test(sql[position + 1] ?? "")) return null;
+    let end = position + 2;
+    while (/[A-Za-z0-9_]/.test(sql[end] ?? "")) end++;
+    return sql[end] === "$" ? sql.slice(position, end + 1) : null;
+  };
 
   // 折叠一段空白为单个空格（仅在 out 非空且不以空格结尾时追加）
   const collapseWhitespace = () => {
+    let containsLineBreak = false;
     while (i < len && isWhitespace(sql[i])) i++;
-    if (out && !out.endsWith(" ")) out += " ";
+    for (let j = i - 1; j >= 0 && isWhitespace(sql[j]); j--) {
+      if (sql[j] === "\n" || sql[j] === "\r") {
+        containsLineBreak = true;
+        break;
+      }
+    }
+    // PostgreSQL only concatenates adjacent string literals when their separating
+    // whitespace contains a newline, so flattening this case would make valid SQL invalid.
+    if (dialect === "postgres" && containsLineBreak && out.endsWith("'") && sql[i] === "'") {
+      out += "\n";
+    } else if (out && !out.endsWith(" ")) {
+      out += " ";
+    }
   };
 
   while (i < len) {
@@ -134,64 +157,67 @@ export function compressSqlText(sql: string, dialect: SqlCompressDialect = "gene
       const isOptimizerHint = third === "+";
 
       if (isExecutableMysql || isOptimizerHint) {
-        // 可执行注释 / optimizer hint —— 保留整体（含界定符），仅折叠内部空白
-        out += "/*";
-        i += 2;
-        if (isExecutableMysql) {
-          out += "!";
-          i++;
-        } else {
-          out += "+";
-          i++;
+        const contentStart = i + 3;
+        const end = sql.indexOf("*/", contentStart);
+        if (end < 0) {
+          // Keep malformed input malformed instead of silently turning it into executable SQL.
+          out += sql.slice(i);
+          break;
         }
-        while (i < len) {
-          if (sql[i] === "*" && sql[i + 1] === "/") {
-            out += "*/";
-            i += 2;
-            break;
-          }
-          if (isWhitespace(sql[i])) {
-            collapseWhitespace();
-          } else {
-            out += sql[i];
-            i++;
-          }
-        }
+        const content = sql.slice(contentStart, end);
+        const leadingSpace = /^\s/.test(content) ? " " : "";
+        const trailingSpace = /\s$/.test(content) ? " " : "";
+        const compressedContent = content.trim() ? compressSqlText(content, dialect) : "";
+        out += `/*${third}${leadingSpace}${compressedContent}${trailingSpace}*/`;
+        i = end + 2;
         continue;
       }
 
       // 普通块注释 —— 移除
+      const commentStart = i;
       i += 2;
-      while (i < len && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
-      i += 2;
+      let depth = 1;
+      while (i < len && depth > 0) {
+        if (supportsNestedBlockComments && sql[i] === "/" && sql[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+      if (depth > 0) {
+        // Removing an unterminated comment can expose a destructive statement that was invalid before.
+        out += sql.slice(commentStart);
+        break;
+      }
       if (out && !out.endsWith(" ")) out += " ";
       continue;
     }
 
-    // 行注释 -- ...
-    if (ch === "-" && next === "-") {
-      i += 2;
-      while (i < len && sql[i] !== "\n") i++;
+    // MySQL additionally supports # comments and requires whitespace/control after --.
+    const startsDashComment = ch === "-" && next === "-" && (dialect !== "mysql" || isMysqlDashComment(sql[i + 2]));
+    if (startsDashComment || (dialect === "mysql" && ch === "#")) {
+      i += startsDashComment ? 2 : 1;
+      while (i < len && sql[i] !== "\n" && sql[i] !== "\r") i++;
       continue;
     }
 
     // PostgreSQL dollar-quoted 字符串：$$...$$ 或 $tag$...$tag$
     if (dialect === "postgres" && ch === "$") {
-      const tagMatch = DOLLAR_QUOTE_RE.exec(sql.slice(i));
-      if (tagMatch && tagMatch.index === 0) {
-        const tag = tagMatch[0];
+      const tag = dollarQuoteTagAt(i);
+      if (tag) {
         out += tag;
         i += tag.length;
-        // 找到结束 tag（原样保留内部所有内容，包括换行与 --）
-        while (i < len) {
-          if (sql.startsWith(tag, i)) {
-            out += tag;
-            i += tag.length;
-            break;
-          }
-          out += sql[i];
-          i++;
+        const end = sql.indexOf(tag, i);
+        if (end < 0) {
+          out += sql.slice(i);
+          break;
         }
+        out += sql.slice(i, end + tag.length);
+        i = end + tag.length;
         continue;
       }
     }
@@ -200,10 +226,11 @@ export function compressSqlText(sql: string, dialect: SqlCompressDialect = "gene
     if (ch === "'") {
       out += "'";
       i++;
+      const postgresEscapeString = dialect === "postgres" && (sql[i - 2] === "E" || sql[i - 2] === "e") && !isIdentifierPart(sql[i - 3]);
       while (i < len) {
         const c = sql[i];
-        // MySQL 反斜杠转义：\' \\ \n 等 —— 原样保留反斜杠与下一字符
-        if (dialect === "mysql" && c === "\\" && i + 1 < len) {
+        // MySQL strings and PostgreSQL E'...' strings use backslash escapes.
+        if ((dialect === "mysql" || postgresEscapeString) && c === "\\" && i + 1 < len) {
           out += c;
           out += sql[i + 1];
           i += 2;
@@ -229,6 +256,12 @@ export function compressSqlText(sql: string, dialect: SqlCompressDialect = "gene
       out += '"';
       i++;
       while (i < len) {
+        if (dialect === "mysql" && sql[i] === "\\" && i + 1 < len) {
+          out += sql[i];
+          out += sql[i + 1];
+          i += 2;
+          continue;
+        }
         out += sql[i];
         if (sql[i] === '"') {
           if (sql[i + 1] === '"') {

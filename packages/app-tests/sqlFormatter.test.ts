@@ -146,6 +146,26 @@ test("MySQL: backslash escape prevents premature string termination", () => {
   assert.equal(compressSqlText(sql, "mysql"), "SELECT 'a\\'b' FROM t");
 });
 
+test("MySQL: preserves backslash escapes inside double-quoted strings", () => {
+  const sql = 'SELECT "a\\" -- still a string"\nFROM t';
+  assert.equal(compressSqlText(sql, "mysql"), 'SELECT "a\\" -- still a string" FROM t');
+});
+
+test("MySQL: removes # line comments", () => {
+  const sql = "SELECT 1 # comment\n+ 2";
+  assert.equal(compressSqlText(sql, "mysql"), "SELECT 1 + 2");
+});
+
+test("MySQL: does not treat -- without following whitespace as a comment", () => {
+  const sql = "SELECT 1--2\nFROM t";
+  assert.equal(compressSqlText(sql, "mysql"), "SELECT 1--2 FROM t");
+});
+
+test("MySQL: executable comments preserve whitespace inside strings", () => {
+  const sql = "SELECT /*! CONCAT('a   b',\n'c') */ 1";
+  assert.equal(compressSqlText(sql, "mysql"), "SELECT /*! CONCAT('a   b', 'c') */ 1");
+});
+
 test("generic dialect does NOT apply MySQL backslash escaping", () => {
   // In standard SQL, backslash is not an escape; the string 'a\' ends at the second quote
   const sql = "SELECT 'a\\' + 1\nFROM t";
@@ -173,6 +193,26 @@ test("PostgreSQL: removes ordinary block comment but preserves dollar-quoted con
   assert.equal(compressSqlText(sql, "postgres"), "SELECT $$keep me$$ FROM t");
 });
 
+test("PostgreSQL: preserves backslash escapes inside E strings", () => {
+  const sql = "SELECT E'a\\' -- still a string'\nFROM t";
+  assert.equal(compressSqlText(sql, "postgres"), "SELECT E'a\\' -- still a string' FROM t");
+});
+
+test("PostgreSQL: removes nested block comments", () => {
+  const sql = "SELECT 1 /* outer /* inner */ still outer */ + 2";
+  assert.equal(compressSqlText(sql, "postgres"), "SELECT 1 + 2");
+});
+
+test("PostgreSQL: keeps the newline required between adjacent string literals", () => {
+  const sql = "SELECT 'foo'\n'bar'";
+  assert.equal(compressSqlText(sql, "postgres"), "SELECT 'foo'\n'bar'");
+});
+
+test("PostgreSQL: dollar tags inside identifiers are not treated as strings", () => {
+  const sql = "SELECT foo$tag$bar -- comment\nFROM t";
+  assert.equal(compressSqlText(sql, "postgres"), "SELECT foo$tag$bar FROM t");
+});
+
 test("SQL Server: preserves bracket identifiers [weird name]", () => {
   const sql = "SELECT [my   column]\nFROM [order]";
   assert.equal(compressSqlText(sql, "sqlserver"), "SELECT [my   column] FROM [order]");
@@ -187,4 +227,9 @@ test("generic dialect does NOT treat [ as identifier delimiter", () => {
   // In generic mode, [ is just a normal character
   const sql = "SELECT [1, 2, 3]\nFROM t";
   assert.equal(compressSqlText(sql), "SELECT [1, 2, 3] FROM t");
+});
+
+test("compressSqlText preserves unterminated block comments", () => {
+  const sql = "DELETE FROM users /* unfinished";
+  assert.equal(compressSqlText(sql), sql);
 });

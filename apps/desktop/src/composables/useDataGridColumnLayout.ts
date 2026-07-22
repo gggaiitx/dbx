@@ -3,7 +3,7 @@ import { columnOrderKeysForIndexes, isDefaultColumnOrder, moveVisibleColumnIndex
 import { columnHeaderCanvasPointerDisabled, columnHeaderClickShouldBeSuppressed, columnHeaderPreviewOffsetForColumn, columnHeaderTooltipDisabled } from "@/lib/dataGrid/dataGridColumnHeaderInteraction";
 import {
   loadDataGridColumnOrder,
-  loadDataGridColumnFrozenCount,
+  loadDataGridColumnFrozenState,
   loadTableDataGridColumnOrder,
   notifyTableDataGridColumnOrderChanged,
   removeDataGridColumnOrder,
@@ -118,12 +118,15 @@ export function useDataGridColumnLayoutState(options: {
     persistedColumnOrderKeys.value = tableOrder.length ? tableOrder : loadDataGridColumnOrder(toValue(options.layoutScopeKey), toValue(options.columnOrderKeys));
   }
   function loadFrozenColumnCount() {
-    frozenColumnCount.value = loadDataGridColumnFrozenCount(toValue(options.layoutScopeKey));
+    const state = loadDataGridColumnFrozenState(toValue(options.layoutScopeKey));
+    frozenColumnCount.value = Math.min(state.frozenCount, visibleColumnIndexes.value.length);
+    columnOrderSnapshotBeforeFreeze.value = state.orderBeforeFreeze;
   }
   function setFrozenColumnCount(count: number) {
-    frozenColumnCount.value = count;
-    if (count > 0) {
-      saveDataGridColumnFrozenCount(toValue(options.layoutScopeKey), count);
+    const clampedCount = Math.max(0, Math.min(count, visibleColumnIndexes.value.length));
+    frozenColumnCount.value = clampedCount;
+    if (clampedCount > 0) {
+      saveDataGridColumnFrozenCount(toValue(options.layoutScopeKey), clampedCount, columnOrderSnapshotBeforeFreeze.value);
     } else {
       removeDataGridColumnFrozenCount(toValue(options.layoutScopeKey));
     }
@@ -237,6 +240,13 @@ export function useDataGridColumnLayoutState(options: {
   }
 
   watch([() => nullColumnsHidden.value, () => [...toValue(options.allNullColumnIndexes)], () => [...toValue(options.displayableColumnIndexes)]], ([hidden]) => applyNullColumnVisibility(hidden as boolean), { immediate: true });
+  watch(
+    () => visibleColumnIndexes.value.length,
+    (visibleCount) => {
+      if (frozenColumnCount.value > visibleCount) setFrozenColumnCount(visibleCount);
+    },
+    { flush: "sync" },
+  );
   watch(
     [() => toValue(options.layoutScopeKey), () => toValue(options.tableScopeKey)],
     () => {

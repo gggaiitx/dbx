@@ -325,6 +325,58 @@ describe("useDataGridColumnLayout", () => {
       scope.stop();
     });
 
+    it("restores the pre-freeze order after reload before unfreezing selected columns", async () => {
+      const options = {
+        columns: ref(["id", "name", "email"]),
+        sourceColumns: ref(undefined),
+        commentByColumn: ref(new Map()),
+        displayableColumnIndexes: ref([0, 1, 2]),
+        allNullColumnIndexes: ref([]),
+        columnOrderKeys: ref(["id\0\0", "name\0\0", "email\0\0"]),
+        layoutScopeKey: ref("frozen-reload-layout"),
+        tableScopeKey: ref(""),
+      };
+      const firstScope = effectScope();
+      const firstState = firstScope.run(() => useDataGridColumnLayoutState(options))!;
+
+      firstState.freezeSelectedColumns([2]);
+      expect(firstState.orderedDisplayableColumnIndexes.value).toEqual([2, 0, 1]);
+      firstScope.stop();
+
+      const reloadedScope = effectScope();
+      const reloadedState = reloadedScope.run(() => useDataGridColumnLayoutState(options))!;
+      await nextTick();
+      reloadedState.unfreezeAllColumns();
+
+      expect(reloadedState.frozenColumnCount.value).toBe(0);
+      expect(reloadedState.orderedDisplayableColumnIndexes.value).toEqual([0, 1, 2]);
+      reloadedScope.stop();
+    });
+
+    it("shrinks the persisted frozen count when visible columns are hidden", async () => {
+      const scope = effectScope();
+      const state = scope.run(() =>
+        useDataGridColumnLayoutState({
+          columns: ref(["id", "name", "email"]),
+          sourceColumns: ref(undefined),
+          commentByColumn: ref(new Map()),
+          displayableColumnIndexes: ref([0, 1, 2]),
+          allNullColumnIndexes: ref([]),
+          columnOrderKeys: ref(["id\0\0", "name\0\0", "email\0\0"]),
+          layoutScopeKey: ref("frozen-hidden-layout"),
+          tableScopeKey: ref(""),
+        }),
+      )!;
+
+      state.freezeToColumn(2);
+      state.toggleColumnVisibility(1);
+      await nextTick();
+
+      expect(state.frozenColumnCount.value).toBe(2);
+      expect(JSON.parse(localStorage.getItem("dbx-data-grid-frozen-columns:frozen-hidden-layout")!)).toMatchObject({ frozenCount: 2 });
+      scope.stop();
+    });
+
     it("allows changing frozen count from one value to another", () => {
       const scope = effectScope();
       const state = scope.run(() =>

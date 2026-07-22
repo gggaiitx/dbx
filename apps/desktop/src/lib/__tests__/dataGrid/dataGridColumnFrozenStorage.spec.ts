@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadDataGridColumnFrozenCount, removeDataGridColumnFrozenCount, saveDataGridColumnFrozenCount } from "@/lib/dataGrid/dataGridColumnLayoutStorage";
+import { loadDataGridColumnFrozenCount, loadDataGridColumnFrozenState, removeDataGridColumnFrozenCount, saveDataGridColumnFrozenCount } from "@/lib/dataGrid/dataGridColumnLayoutStorage";
 
 function installLocalStorage() {
   const data = new Map<string, string>();
@@ -62,5 +62,14 @@ describe("data grid column frozen count storage", () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
     expect(parsed).toEqual({ version: 1, frozenCount: 3 });
+  });
+
+  it("stores and loads the column order from before selected columns were frozen", () => {
+    saveDataGridColumnFrozenCount("scope-1", 2, ["id", "name", "email"]);
+
+    expect(loadDataGridColumnFrozenState("scope-1")).toEqual({
+      frozenCount: 2,
+      orderBeforeFreeze: ["id", "name", "email"],
+    });
   });
 });

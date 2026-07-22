@@ -33,6 +33,7 @@ export default withEnglishFallback({
     stopExplain: "Interrompi spiegazione",
     formatSql: "Formatta SQL",
     formatSqlFailed: "Impossibile formattare SQL",
+    compressSql: "Comprimi SQL",
     keywordCaseLower: "Usa parole chiave SQL minuscole",
     keywordCaseUpper: "Usa parole chiave SQL maiuscole",
     autoCommit: "Auto Commit",

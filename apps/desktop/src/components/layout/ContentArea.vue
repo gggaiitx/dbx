@@ -129,6 +129,7 @@ const props = defineProps<{
   executableSql: string;
   activeOutputView: "result" | "summary" | "explain" | "chart";
   formatSqlRequest: { id: number; tabId: string } | null;
+  compressSqlRequest: { id: number; tabId: string } | null;
   selectedSql: string;
   cursorPos: number;
   blockDangerousRedisCommands: boolean;
@@ -833,6 +834,7 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
               :syntax-dialect="editorSyntaxDialect"
               :format-dialect="activeSqlFormatDialect"
               :format-request-id="formatSqlRequest?.tabId === activeTab.id ? formatSqlRequest.id : undefined"
+              :compress-request-id="compressSqlRequest?.tabId === activeTab.id ? compressSqlRequest.id : undefined"
               :execution-error="activeQueryError"
               :execution-error-sql="activeTab.lastExecutedSql"
               :statement-execution-markers="activeStatementExecutionMarkers"

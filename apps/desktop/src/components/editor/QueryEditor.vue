@@ -17,7 +17,7 @@ import { executableStatementRangeAtCursor, executableStatementRangeCacheForDoc, 
 import { currentStatementFrameRangeTo, visualSqlColumnsWithInlineHints } from "@/lib/sql/currentStatementFrame";
 import { expandToSqlStatementWindow, parseInsertValueHints } from "@/lib/sql/insertValueHints";
 import { insertValueHintColumnNames } from "@/lib/sql/insertValueHintColumns";
-import { formatSqlText, type SqlFormatDialect } from "@/lib/sql/sqlFormatter";
+import { formatSqlText, compressSqlText, type SqlFormatDialect } from "@/lib/sql/sqlFormatter";
 import { blankLineDeletionChanges, replaceSelectedEditorText } from "@/lib/editor/queryEditorTextEdits";
 import { buildSqlInConditionFromPasteSource, insertTextForSqlInCondition } from "@/lib/sql/sqlInListPaste";
 import { resolveSqlSingleQuoteKeyAction } from "@/lib/sql/sqlQuoteCaret";
@@ -106,6 +106,7 @@ const props = defineProps<{
   syntaxDialect?: "mysql" | "postgres" | "sqlserver";
   formatDialect?: SqlFormatDialect;
   formatRequestId?: number;
+  compressRequestId?: number;
   executionError?: string;
   executionErrorSql?: string;
   readOnly?: boolean;
@@ -2064,6 +2065,30 @@ async function formatCurrentSql() {
   }
 }
 
+function compressCurrentSql() {
+  if (props.readOnly) return;
+  const currentView = view.value;
+  if (!currentView) return;
+
+  const originalState = currentView.state;
+  const selection = originalState.selection.main;
+  const compressesSelection = !selection.empty;
+  const from = compressesSelection ? selection.from : 0;
+  const to = compressesSelection ? selection.to : originalState.doc.length;
+  const source = originalState.sliceDoc(from, to);
+  if (!source.trim()) return;
+
+  const compressed = compressSqlText(source, props.formatDialect ?? props.dialect ?? "generic");
+  if (currentView !== view.value || currentView.state !== originalState || currentView.state.sliceDoc(from, to) !== source) {
+    return;
+  }
+  if (compressed === source) return;
+  currentView.dispatch({
+    changes: { from, to, insert: compressed },
+    selection: compressesSelection ? { anchor: from, head: from + compressed.length } : { anchor: from + compressed.length },
+  });
+}
+
 function droppedTableReference(event: DragEvent) {
   return activeTableReferencePayloadValue() ?? parseTableReferencePayload(event.dataTransfer?.getData(DBX_TABLE_REFERENCE_MIME));
 }
@@ -3848,6 +3873,13 @@ watch(
   () => props.formatRequestId,
   (val, oldVal) => {
     if (val && val !== oldVal) formatCurrentSql();
+  },
+);
+
+watch(
+  () => props.compressRequestId,
+  (val, oldVal) => {
+    if (val && val !== oldVal) compressCurrentSql();
   },
 );
 

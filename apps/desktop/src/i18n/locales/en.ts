@@ -32,6 +32,7 @@ export default {
     stopExplain: "Stop explain",
     formatSql: "Format SQL",
     formatSqlFailed: "Failed to format SQL",
+    compressSql: "Compress SQL",
     keywordCaseLower: "Use lower-case SQL keywords",
     keywordCaseUpper: "Use upper-case SQL keywords",
     autoCommit: "Auto Commit",

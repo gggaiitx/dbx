@@ -109,3 +109,26 @@ export function notifyTableDataGridColumnOrderChanged(scopeKey: string) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<TableDataGridColumnOrderChangedDetail>(TABLE_DATA_GRID_COLUMN_ORDER_CHANGED_EVENT, { detail: { scopeKey } }));
 }
+
+const FROZEN_STORAGE_PREFIX = "dbx-data-grid-frozen-columns:";
+
+export function loadDataGridColumnFrozenCount(scopeKey: string): number {
+  const raw = safeLocalStorageGet(`${FROZEN_STORAGE_PREFIX}${scopeKey}`);
+  if (!raw) return 0;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null && "frozenCount" in parsed) return (parsed as { frozenCount: number }).frozenCount ?? 0;
+    if (typeof parsed === "number") return parsed;
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function saveDataGridColumnFrozenCount(scopeKey: string, frozenCount: number) {
+  safeLocalStorageSet(`${FROZEN_STORAGE_PREFIX}${scopeKey}`, JSON.stringify({ version: STORAGE_VERSION, frozenCount }));
+}
+
+export function removeDataGridColumnFrozenCount(scopeKey: string) {
+  safeLocalStorageRemove(`${FROZEN_STORAGE_PREFIX}${scopeKey}`);
+}

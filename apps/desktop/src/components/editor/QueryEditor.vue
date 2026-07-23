@@ -60,6 +60,7 @@ import {
 } from "@/lib/editor/queryEditorTableDrop";
 import { EDITOR_FONT_FAMILY_CSS_VAR, EDITOR_FONT_SIZE_CSS_VAR, loadEditorTheme, editorFontTheme, sqlCompletionTheme, sqlSemanticHighlightTheme } from "@/lib/editor/editorThemes";
 import { createStatementGutterMarkerDom, shouldShowStatementGutter } from "@/lib/editor/codemirrorStatementGutter";
+import { createQueryEditorSearchKeymap } from "@/lib/editor/queryEditorSearchKeymap";
 import { clampEditorFontSize, createEditorZoomCommitScheduler, fontSizeFromGestureScale, fontSizeFromWheelDelta } from "@/lib/editor/editorZoom";
 import { normalizeShortcutSettings, shortcutToCodeMirrorKey } from "@/lib/editor/shortcutRegistry";
 import { trimmedSelectionLayer } from "@/lib/editor/codemirrorTrimmedSelectionLayer";
@@ -3680,6 +3681,11 @@ onMounted(async () => {
       buildResultSourceRangeExtension(),
       Prec.highest(
         keymap.of([
+          ...createQueryEditorSearchKeymap({
+            openSearch,
+            openReplace,
+            isReadOnly: () => !!props.readOnly,
+          }),
           { key: "'", run: handleSqlSingleQuote },
           { key: "Tab", run: handleTab },
           {
@@ -4305,6 +4311,7 @@ function openSearch(): boolean {
 }
 
 function openReplace(): boolean {
+  if (props.readOnly) return false;
   return searchPanelRef.value?.openReplace() ?? false;
 }
 

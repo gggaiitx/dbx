@@ -287,6 +287,8 @@ interface DataGridProps {
   pageLimit?: number;
   countSql?: string;
   totalRowCount?: number;
+  totalRowCountIsExact?: boolean;
+  paginationTotalRowCount?: number;
   totalRowCountLoading?: boolean;
   loading?: boolean;
   cacheKey?: string;
@@ -2363,9 +2365,13 @@ const inferredBackendTotalRowCount = computed(() => {
 });
 const serverKnownTotalRowCount = computed(() => props.totalRowCount ?? manualTotalRowCount.value);
 const displayedTotalRowCount = computed(() => serverKnownTotalRowCount.value ?? inferredBackendTotalRowCount.value);
+const totalRowCountIsExact = computed(() => props.totalRowCountIsExact !== false);
+// A backend can expose an exact display total while deliberately restricting
+// offset pagination to a smaller safe range.
+const paginationTotalRowCount = computed(() => props.paginationTotalRowCount ?? serverKnownTotalRowCount.value);
 // Only a server-confirmed total drives pagination — an inferred total means
 // rows exist that we never fetched, so navigation must stay inside rows.length.
-const hasKnownTotalRowCount = computed(() => typeof serverKnownTotalRowCount.value === "number" && serverKnownTotalRowCount.value >= 0);
+const hasKnownPaginationTotalRowCount = computed(() => typeof paginationTotalRowCount.value === "number" && paginationTotalRowCount.value >= 0);
 // When context=results and the caller hasn't configured server-side
 // pagination (no pageLimit), the backend handed us every row up-front and
 // rowCount IS the total. Without this hint, the "page is full → assume more"
@@ -2391,11 +2397,11 @@ const canGoNextPage = computed(() => {
     pageSize: pageSize.value,
     pageOffset: props.pageOffset,
     currentPage: currentPage.value,
-    totalRowCount: hasKnownTotalRowCount.value ? displayedTotalRowCount.value : undefined,
+    totalRowCount: hasKnownPaginationTotalRowCount.value ? paginationTotalRowCount.value : undefined,
     allRowsLoaded: allRowsLoaded.value,
   });
 });
-const canJumpLastPage = computed(() => canGoNextPage.value && (hasKnownTotalRowCount.value || allRowsLoaded.value || !!props.tableMeta || !!props.countSql));
+const canJumpLastPage = computed(() => canGoNextPage.value && (hasKnownPaginationTotalRowCount.value || allRowsLoaded.value || !!props.tableMeta || !!props.countSql));
 const totalRowCountBusy = computed(() => props.totalRowCountLoading === true || manualTotalRowCountLoading.value);
 const canCalculateTotalRowCount = computed(() => !!props.connectionId && (!!props.tableMeta || !!props.countSql));
 // When a refresh/rollback completes and the current page exceeds the last
@@ -2408,7 +2414,7 @@ watch(
     // and the completion was triggered by a refresh/rollback.
     if (!loading && prevLoading && isRefreshingData.value) {
       isRefreshingData.value = false;
-      const total = displayedTotalRowCount.value;
+      const total = paginationTotalRowCount.value;
       if (!total || total <= 0) return;
       const lastPageNum = Math.max(1, Math.ceil(total / pageSize.value));
       if (currentPage.value <= lastPageNum) return;
@@ -2571,8 +2577,8 @@ function applyCustomPageSize() {
 
 async function lastPage() {
   if (infiniteScrollEnabled.value) return;
-  if (hasKnownTotalRowCount.value) {
-    const total = displayedTotalRowCount.value ?? 0;
+  if (hasKnownPaginationTotalRowCount.value) {
+    const total = paginationTotalRowCount.value ?? 0;
     if (total <= 0) return;
     const lastPageNum = Math.ceil(total / pageSize.value);
     if (lastPageNum <= currentPage.value) return;
@@ -8916,7 +8922,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
       <div class="flex min-w-0 items-center gap-2 overflow-hidden">
         <span v-if="hasData" class="shrink-0">
           {{ t(showTruncationWarning ? "grid.loadedRows" : "grid.totalRows", { count: result.rows.length }) }}
-          <span v-if="typeof displayedTotalRowCount === 'number' && displayedTotalRowCount >= 0" class="text-muted-foreground/70">{{ t("grid.totalRowCount", { count: displayedTotalRowCount }) }}</span>
+          <span v-if="typeof displayedTotalRowCount === 'number' && displayedTotalRowCount >= 0" class="text-muted-foreground/70">{{ t(totalRowCountIsExact === false ? "grid.totalRowCountAtLeast" : "grid.totalRowCount", { count: displayedTotalRowCount }) }}</span>
           <span v-else-if="totalRowCountBusy" class="text-muted-foreground/70">
             {{ t("grid.totalRowCountLoading") }}
           </span>

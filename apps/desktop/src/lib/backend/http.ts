@@ -75,6 +75,7 @@ import type {
   KvPutOptions,
   KvPutResponse,
   KvDeleteResponse,
+  DocumentQueryResult,
   MongoDocumentResult,
   MongoCollectionStatsResult,
   MongoGridFsBucketInfo,
@@ -2178,8 +2179,12 @@ export async function mongoFindOne(connectionId: string, database: string, colle
   return post("/api/mongo/find-one", { connectionId, database, collection, filter, projection, options, executionId });
 }
 
-export async function documentFindDocuments(connectionId: string, database: string, collection: string, skip: number, limit: number, filter?: string, projection?: string, sort?: string, executionId?: string): Promise<MongoDocumentResult> {
+export async function documentFindDocuments(connectionId: string, database: string, collection: string, skip: number, limit: number, filter?: string, projection?: string, sort?: string, executionId?: string): Promise<DocumentQueryResult> {
   return post("/api/document-store/find-documents", { connectionId, database, collection, skip, limit, filter, projection, sort, executionId });
+}
+
+export async function elasticsearchCountDocuments(connectionId: string, index: string, filter?: string, executionId?: string): Promise<number> {
+  return post("/api/document-store/elasticsearch-count-documents", { connectionId, index, filter, executionId });
 }
 
 export async function mongoCountDocuments(connectionId: string, database: string, collection: string, filter?: string, mode?: "accurate" | "legacy", executionId?: string): Promise<number> {

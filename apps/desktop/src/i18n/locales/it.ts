@@ -820,6 +820,7 @@ export default withEnglishFallback({
     totalRows: "Totale {count} righe",
     loadedRows: "{count} righe caricate",
     totalRowCount: "({count} in totale)",
+    totalRowCountAtLeast: "(almeno {count} in totale)",
     totalRowCountLoading: "(conteggio...)",
     loadingMore: "Caricamento altri dati...",
     allLoaded: "tutto caricato",

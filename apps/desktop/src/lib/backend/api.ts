@@ -491,6 +491,7 @@ export const mongoDropDatabase = forward("mongoDropDatabase");
 export const mongoDropCollection = forward("mongoDropCollection");
 export const mongoRenameCollection = forward("mongoRenameCollection");
 export const documentFindDocuments = forward("documentFindDocuments");
+export const elasticsearchCountDocuments = forward("elasticsearchCountDocuments");
 export const mongoFindDocuments = forward("mongoFindDocuments");
 export const mongoParseShellCommand = forward("mongoParseShellCommand");
 export const mongoFindOne = forward("mongoFindOne");
@@ -611,6 +612,7 @@ export type {
   KvPutOptions,
   KvPutResponse,
   KvDeleteResponse,
+  DocumentQueryResult,
   MongoDocumentResult,
   HistoryEntry,
   HistoryConnectionFilter,

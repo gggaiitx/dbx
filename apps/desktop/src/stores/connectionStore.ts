@@ -1297,7 +1297,7 @@ export const useConnectionStore = defineStore("connection", () => {
     searchFilter?: string;
     force?: boolean;
   }): Promise<{ children: TreeNode[]; objectCount: number; hasMore: boolean; nextOffset: number; loadMoreParent?: TableTreeLoadMoreParent }> {
-    if (!options.node.connectionId || !options.node.database) {
+    if (!options.node.connectionId || options.node.database == null) {
       return { children: [], objectCount: 0, hasMore: false, nextOffset: options.offset };
     }
     const searchFilter = (options.searchFilter ?? sidebarSearchQuery.value) || undefined;
@@ -1351,7 +1351,7 @@ export const useConnectionStore = defineStore("connection", () => {
     searchFilter?: string;
     force?: boolean;
   }): Promise<{ children: TreeNode[]; objectCount: number; hasMore: boolean; nextOffset: number }> {
-    if (!options.node.connectionId || !options.node.database) {
+    if (!options.node.connectionId || options.node.database == null) {
       return { children: [], objectCount: 0, hasMore: false, nextOffset: options.offset };
     }
     const searchFilter = options.searchFilter || undefined;

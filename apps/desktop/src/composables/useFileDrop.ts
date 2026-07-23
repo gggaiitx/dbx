@@ -16,6 +16,23 @@ function getDataFileQuery(path: string): Promise<string | undefined> {
   return api.buildDroppedFilePreviewSql({ path });
 }
 
+// The interception flag lives on `globalThis` rather than a module-level ref
+// so it survives Vite HMR: when this module is hot-reloaded, a new module-level
+// ref would be a *different instance* than the one the already-registered
+// `onDragDropEvent` closure captured in App.vue — meaning the old listener
+// would keep processing drops even after the dialog sets the flag. A
+// `globalThis` property is identity-stable across hot reloads, so both the old
+// closure and the new dialog code read/write the exact same value.
+const INTERCEPT_KEY = "__dbx_file_drop_intercepted";
+
+export function setFileDropIntercepted(value: boolean): void {
+  (globalThis as any)[INTERCEPT_KEY] = value;
+}
+
+function isFileDropIntercepted(): boolean {
+  return (globalThis as any)[INTERCEPT_KEY] === true;
+}
+
 export function useFileDrop() {
   const { t } = useI18n();
   const connectionStore = useConnectionStore();
@@ -40,6 +57,7 @@ export function useFileDrop() {
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
       const webview = getCurrentWebview();
       await webview.onDragDropEvent(async (event) => {
+        if (isFileDropIntercepted()) return;
         if (event.payload.type !== "drop") return;
         for (const path of event.payload.paths) {
           const name = path.split("/").pop()?.split("\\").pop() || path;

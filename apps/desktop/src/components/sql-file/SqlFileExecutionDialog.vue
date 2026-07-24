@@ -426,9 +426,8 @@ function applyProgress(next: SqlFileProgress) {
   file.status = next.status;
   if (next.error) file.error = next.error;
   updateSqlFileTask(next.executionId, next);
-  if (next.status === "done") {
-    void refreshTargetAfterImport();
-  }
+  // NOTE: per-file tree refresh removed — the tree is refreshed once after
+  // the entire batch settles so objects created by later files are visible.
   // Resolve the web-mode terminal promise so `runFile` can return.
   if (isTerminalFileStatus(next.status)) {
     const resolver = terminalResolvers.get(next.executionId);
@@ -522,9 +521,7 @@ async function runFile(file: BatchFileItem): Promise<BatchFileStatus> {
           statementSummary: lastProgress?.statementSummary ?? "",
           error: lastProgress?.error ?? null,
         });
-        if (file.status === "done") {
-          await refreshTargetAfterImport();
-        }
+        // NOTE: per-file tree refresh removed — refreshed once after batch.
       }
     }
   } catch (e: any) {
@@ -633,7 +630,11 @@ async function startExecution() {
     }
 
     terminalStatus.value = computeBatchTerminalStatus();
-    if (terminalStatus.value === "done") {
+    // Refresh the database tree once after the entire batch settles so
+    // objects created by any file (not just the first) are visible. Refresh
+    // if at least one file succeeded, even if others failed or were cancelled.
+    const anyDone = files.value.some((f) => f.status === "done");
+    if (anyDone) {
       await refreshTargetAfterImport();
     }
   } catch (e: any) {

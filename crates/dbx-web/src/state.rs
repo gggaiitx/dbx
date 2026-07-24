@@ -30,6 +30,11 @@ pub struct WebState {
     /// `Instant` records when the terminal progress was stored; entries older
     /// than the TTL are evicted lazily on read.
     pub sql_file_terminal_progress: RwLock<HashMap<String, (SqlFileProgress, std::time::Instant)>>,
+    /// Preview TTL cleanup tasks for uploaded SQL files, keyed by the file
+    /// path returned to the frontend. When execution starts (claim), the TTL
+    /// task is aborted so the file isn't deleted while queued. Unclaimed
+    /// files are cleaned up after the TTL expires.
+    pub sql_file_upload_ttls: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 impl WebState {

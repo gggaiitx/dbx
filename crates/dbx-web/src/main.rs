@@ -206,6 +206,7 @@ async fn main() {
         login_rate_limit: tokio::sync::Mutex::new(state::LoginRateLimit { fail_count: 0, locked_until: None }),
         export_files: RwLock::new(HashMap::new()),
         sql_file_terminal_progress: RwLock::new(HashMap::new()),
+        sql_file_upload_ttls: RwLock::new(HashMap::new()),
     });
 
     // API routes

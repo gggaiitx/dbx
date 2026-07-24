@@ -53,14 +53,16 @@ pub async fn preview_sql_file(
         std::fs::write(&file_path, &data).map_err(|e| AppError::from(e.to_string()))?;
 
         // Schedule cleanup of the upload directory after 5 minutes so that
-        // previewed-but-never-executed files don't accumulate indefinitely.
-        // If the file is executed before then, the execution task also
-        // deletes it — double deletion is a harmless no-op.
+        // previewed-but-never-claimed files don't accumulate indefinitely.
+        // When execution starts, the TTL task is aborted (claim) so the file
+        // isn't deleted while queued behind other files.
+        let file_path_key = file_path.to_string_lossy().to_string();
         let ttl_dir = upload_dir.clone();
-        tokio::spawn(async move {
+        let ttl_handle = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(300)).await;
             let _ = std::fs::remove_dir_all(&ttl_dir);
         });
+        state.sql_file_upload_ttls.write().await.insert(file_path_key, ttl_handle);
 
         let size_bytes = data.len() as u64;
         let content = sql::decode_sql_file_bytes(&data).map_err(AppError::from)?;
@@ -94,6 +96,11 @@ pub async fn execute_sql_file(
 
     let execution_id = req.execution_id.clone();
     let file_path = validated_uploaded_sql_path(&state.data_dir, &req.file_path)?;
+    // Claim the uploaded file: abort the preview TTL so the file isn't
+    // deleted while it's queued behind other files in sequential mode.
+    if let Some(handle) = state.sql_file_upload_ttls.write().await.remove(&req.file_path) {
+        handle.abort();
+    }
     let token = CancellationToken::new();
 
     {
@@ -162,10 +169,21 @@ pub async fn execute_sql_file(
             }
         };
 
-        let _ = execute_sql_file_content(&app, &req, &file_content, token, started_at, |progress| {
+        let result = execute_sql_file_content(&app, &req, &file_content, token, started_at, |progress| {
             progress_emitter.emit(progress);
         })
         .await;
+
+        // If the executor returned an error (e.g. connection or prepare-stage
+        // failure) without emitting a terminal progress, convert it to an
+        // Error progress so late SSE subscribers receive a terminal status
+        // instead of waiting until the 10-minute timeout.
+        if let Err(e) = result {
+            let has_terminal = terminal_capture.lock().unwrap().is_some();
+            if !has_terminal {
+                progress_emitter.emit(sql_file_error_progress(&req.execution_id, started_at, e));
+            }
+        }
 
         finalize_execution(&state_clone, &req.execution_id, &file_path, &terminal_capture).await;
     });
@@ -236,6 +254,20 @@ pub async fn sql_file_progress(
         if let Some(tx) = channels.get(&execution_id) {
             let rx = tx.subscribe();
             drop(channels);
+            // Atomic recheck: the task may have finished and saved a terminal
+            // progress between our channel lookup and subscribe. A new
+            // broadcast receiver only receives messages sent AFTER subscribe,
+            // so if the terminal was already sent we'd miss it. Recheck the
+            // terminal store to close this race.
+            let terminals = state.sql_file_terminal_progress.read().await;
+            if let Some((progress, _)) = terminals.get(&execution_id) {
+                let json = serde_json::to_string(progress).unwrap_or_default();
+                drop(terminals);
+                let (tx2, rx2) = broadcast::channel::<String>(1);
+                let _ = tx2.send(json);
+                drop(tx2);
+                return Ok(crate::sse::sse_from_lossy_channel(rx2));
+            }
             return Ok(crate::sse::sse_from_lossy_channel(rx));
         }
     }
@@ -313,6 +345,10 @@ pub async fn release_sql_file_upload(
     State(state): State<Arc<WebState>>,
     Json(req): Json<ReleaseUploadRequest>,
 ) -> Json<serde_json::Value> {
+    // Abort the preview TTL so it doesn't race with our explicit deletion.
+    if let Some(handle) = state.sql_file_upload_ttls.write().await.remove(&req.file_path) {
+        handle.abort();
+    }
     if let Ok(path) = validated_uploaded_sql_path(&state.data_dir, &req.file_path) {
         let _ = std::fs::remove_file(&path);
         if let Some(parent) = path.parent() {
@@ -381,6 +417,7 @@ mod tests {
             login_rate_limit: Mutex::new(LoginRateLimit { fail_count: 0, locked_until: None }),
             export_files: RwLock::new(HashMap::new()),
             sql_file_terminal_progress: RwLock::new(HashMap::new()),
+            sql_file_upload_ttls: RwLock::new(HashMap::new()),
         });
         (state, dir)
     }
@@ -546,6 +583,76 @@ mod tests {
         .await;
 
         assert!(result.is_err(), "sql_file_progress should be waiting for channel, not returning immediately");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Late subscriber race: the task sent the terminal progress via the
+    /// broadcast channel AND saved it to the terminal store, but the channel
+    /// hasn't been removed yet. A new receiver created by `subscribe()` would
+    /// miss the already-sent message. The GET handler must recheck the
+    /// terminal store after subscribing and return the saved terminal.
+    #[tokio::test]
+    async fn get_after_terminal_sent_but_channel_still_active_uses_terminal_store() {
+        let (state, dir) = test_web_state().await;
+        let execution_id = "exec-late-subscriber";
+
+        // Simulate: task is still "active" (channel exists) but has already
+        // sent the terminal progress and saved it to the terminal store.
+        let (tx, _rx) = broadcast::channel::<String>(256);
+        state.sse_channels.write().await.insert(execution_id.to_string(), tx);
+
+        let progress = make_terminal_progress(execution_id);
+        let expected_json = serde_json::to_string(&progress).unwrap();
+        state.sql_file_terminal_progress.write().await.insert(execution_id.to_string(), (progress, Instant::now()));
+
+        // The GET handler should find the channel, subscribe, then recheck
+        // the terminal store and return the terminal progress (not the
+        // channel stream which would miss the already-sent message).
+        let result = sql_file_progress(State(state.clone()), AxumPath(execution_id.to_string())).await;
+        assert!(result.is_ok(), "expected Ok when terminal store has entry");
+        let sse = result.unwrap_or_else(|e| panic!("expected Ok: {}", e.message));
+        let response = sse.into_response();
+        let body = response.into_body();
+
+        let bytes = tokio::time::timeout(Duration::from_secs(5), to_bytes(body, 1024 * 1024))
+            .await
+            .expect("to_bytes should not time out")
+            .expect("to_bytes should not error");
+        let body_str = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            body_str.contains(&expected_json),
+            "SSE body should contain the terminal progress from the store, got: {body_str}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Verify that the TTL claim mechanism works: when a file path is claimed
+    /// (removed from the TTL map), the preview TTL handle is aborted and no
+    /// longer running.
+    #[tokio::test]
+    async fn preview_ttl_is_aborted_when_execute_claims_file() {
+        let (state, dir) = test_web_state().await;
+        let file_path_key = "/tmp/fake-path/test.sql";
+
+        // Simulate preview storing a TTL handle.
+        let ttl_ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ttl_ran_clone = ttl_ran.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            ttl_ran_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        state.sql_file_upload_ttls.write().await.insert(file_path_key.to_string(), handle);
+
+        // Claim the file (as execute_sql_file would).
+        if let Some(h) = state.sql_file_upload_ttls.write().await.remove(file_path_key) {
+            h.abort();
+        }
+
+        // Wait long enough for the TTL to have fired if it weren't aborted.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!ttl_ran.load(std::sync::atomic::Ordering::SeqCst), "TTL task should have been aborted, not run");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

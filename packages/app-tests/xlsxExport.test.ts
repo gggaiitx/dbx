@@ -44,11 +44,49 @@ test("writes MySQL 5.7 numeric strings as numeric cells", () => {
   });
   const text = new TextDecoder().decode(workbook);
 
-  assert.match(text, /<c r="A2"><v>42<\/v><\/c>/);
-  assert.match(text, /<c r="B2"><v>123\.5<\/v><\/c>/);
-  assert.match(text, /<c r="C2"><v>987654\.321<\/v><\/c>/);
-  assert.match(text, /<c r="D2"><v>2800\.000000<\/v><\/c>/);
-  assert.match(text, /<c r="E2" t="inlineStr"><is><t>9007199254740992<\/t><\/is><\/c>/);
+  // Numeric columns get the right-align cellXfs style (index 2).
+  assert.match(text, /<c r="A2" s="2"><v>42<\/v><\/c>/);
+  assert.match(text, /<c r="B2" s="2"><v>123\.5<\/v><\/c>/);
+  assert.match(text, /<c r="C2" s="2"><v>987654\.321<\/v><\/c>/);
+  assert.match(text, /<c r="D2" s="2"><v>2800\.000000<\/v><\/c>/);
+  assert.match(text, /<c r="E2" t="inlineStr" s="2"><is><t>9007199254740992<\/t><\/is><\/c>/);
+});
+
+test("numeric columns get right-align style in xlsx exports", () => {
+  const workbook = buildXlsxWorkbook({
+    sheetName: "Mix",
+    columns: ["amount", "label"],
+    columnTypes: ["decimal(10,2)", "varchar(50)"],
+    rows: [[1.5, "row"]],
+  });
+  const text = new TextDecoder().decode(workbook);
+
+  // styles.xml defines a third cellXfs entry with right alignment for numeric columns.
+  assert.match(text, /<cellXfs count="3">/);
+  assert.match(text, /<alignment horizontal="right"\/>/);
+  // Numeric column (decimal) carries s="2"; text column (varchar) has no style attribute.
+  assert.match(text, /<c r="A2" s="2"><v>1\.5<\/v><\/c>/);
+  assert.match(text, /<c r="B2" t="inlineStr"><is><t>row<\/t><\/is><\/c>/);
+});
+
+test("xlsx numeric detection matches the data grid (bit is not numeric, serial/dec/fixed are)", () => {
+  // bit/bool are boolean flags in the grid and must NOT get the right-align
+  // style; serial/dec/fixed ARE numeric in the grid and must get it. This keeps
+  // exports aligned with the in-app grid.
+  const workbook = buildXlsxWorkbook({
+    sheetName: "Sync",
+    columns: ["flag", "seq", "amt", "price"],
+    columnTypes: ["bit", "serial", "dec(10,2)", "fixed"],
+    rows: [[1, 100, 9.99, 3.14]],
+  });
+  const text = new TextDecoder().decode(workbook);
+
+  // bit -> no right-align style (boolean flag, left-aligned like the grid)
+  assert.match(text, /<c r="A2"><v>1<\/v><\/c>/);
+  // serial / dec / fixed -> right-align style (numeric, matches grid)
+  assert.match(text, /<c r="B2" s="2"><v>100<\/v><\/c>/);
+  assert.match(text, /<c r="C2" s="2"><v>9\.99<\/v><\/c>/);
+  assert.match(text, /<c r="D2" s="2"><v>3\.14<\/v><\/c>/);
 });
 
 test("builds a result workbook with a separate SQL worksheet", () => {

@@ -59,7 +59,9 @@ pub(crate) fn data_row_xml(row_number: usize, columns: &[String], column_types: 
         .iter()
         .enumerate()
         .map(|(col_index, _)| {
-            typed_cell_xml(row.get(col_index), column_types.get(col_index), row_number - 1, col_index, None)
+            let column_type = column_types.get(col_index);
+            let style = numeric_column_style(column_type);
+            typed_cell_xml(row.get(col_index), column_type, row_number - 1, col_index, style)
         })
         .collect::<String>();
     format!("<row r=\"{row_number}\">{cells}</row>")
@@ -285,21 +287,41 @@ fn cell_xml(value: Option<&Value>, row_index: usize, col_index: usize, style: Op
     }
 }
 
+/// XLSX cellXfs index for the numeric right-aligned style (see `styles_xml`).
+/// Header bold is index 1; this is index 2.
+const NUMERIC_RIGHT_ALIGN_STYLE_INDEX: usize = 2;
+
+/// Returns the right-align cellXfs index for numeric columns, so exported
+/// numbers align with the in-app grid. Non-numeric columns get no style.
+fn numeric_column_style(column_type: Option<&String>) -> Option<usize> {
+    if is_numeric_column_type(column_type) {
+        Some(NUMERIC_RIGHT_ALIGN_STYLE_INDEX)
+    } else {
+        None
+    }
+}
+
 fn is_numeric_column_type(column_type: Option<&String>) -> bool {
+    // Keep this list in sync with the frontend `NUMERIC_COLUMN_TYPE_BASES` in
+    // `dataGridColumnType.ts` so XLSX exports align with the in-app grid.
+    // `bit`/`bool` are deliberately NOT numeric (usually boolean flags).
     let normalized = column_type.map(|value| value.trim().to_ascii_lowercase()).unwrap_or_default();
     let base = normalized.split(['(', ' ', '[']).next().unwrap_or_default();
     matches!(
         base,
-        "bit"
-            | "tinyint"
+        "tinyint"
             | "smallint"
             | "mediumint"
             | "int"
             | "integer"
             | "bigint"
+            | "serial"
+            | "smallserial"
+            | "bigserial"
             | "int2"
             | "int4"
             | "int8"
+            | "uint"
             | "uint8"
             | "uint16"
             | "uint32"
@@ -316,6 +338,8 @@ fn is_numeric_column_type(column_type: Option<&String>) -> bool {
             | "decimal"
             | "numeric"
             | "number"
+            | "dec"
+            | "fixed"
             | "money"
             | "smallmoney"
     )
@@ -391,7 +415,9 @@ fn worksheet_xml(data: &XlsxWorksheetData) -> String {
                 .iter()
                 .enumerate()
                 .map(|(col_index, _)| {
-                    typed_cell_xml(row.get(col_index), data.column_types.get(col_index), excel_row - 1, col_index, None)
+                    let column_type = data.column_types.get(col_index);
+                    let style = numeric_column_style(column_type);
+                    typed_cell_xml(row.get(col_index), column_type, excel_row - 1, col_index, style)
                 })
                 .collect::<String>();
             format!("<row r=\"{excel_row}\">{cells}</row>")
@@ -498,7 +524,7 @@ fn styles_xml() -> &'static str {
         "<fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills>",
         "<borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>",
         "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>",
-        "<cellXfs count=\"2\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\"/></cellXfs>",
+        "<cellXfs count=\"3\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\"/><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyAlignment=\"1\"><alignment horizontal=\"right\"/></xf></cellXfs>",
         "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>",
         "</styleSheet>"
     )
@@ -625,8 +651,8 @@ mod tests {
         .expect("build workbook");
 
         let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
-        assert!(sheet.contains("<c r=\"A2\"><v>1.00000</v></c>"));
-        assert!(sheet.contains("<c r=\"B2\"><v>2800.000000</v></c>"));
+        assert!(sheet.contains("<c r=\"A2\" s=\"2\"><v>1.00000</v></c>"));
+        assert!(sheet.contains("<c r=\"B2\" s=\"2\"><v>2800.000000</v></c>"));
         assert!(sheet.contains("<c r=\"C2\" t=\"inlineStr\"><is><t>00123</t></is></c>"));
     }
 
@@ -678,8 +704,30 @@ mod tests {
             ("G2", "987654.321"),
             ("H2", "2800.000000"),
         ] {
-            assert!(sheet.contains(&format!("<c r=\"{reference}\"><v>{value}</v></c>")), "sheet={sheet}");
+            assert!(sheet.contains(&format!("<c r=\"{reference}\" s=\"2\"><v>{value}</v></c>")), "sheet={sheet}");
         }
+    }
+
+    #[test]
+    fn numeric_detection_matches_data_grid_bit_is_not_numeric_serial_dec_fixed_are() {
+        // Keep XLSX numeric detection in sync with the frontend data grid's
+        // `NUMERIC_COLUMN_TYPE_BASES`: bit/bool are boolean flags (no
+        // right-align style), serial/dec/fixed are numeric (right-aligned).
+        let workbook = build_xlsx_workbook(&XlsxWorksheetData {
+            sheet_name: Some("Sync".to_string()),
+            columns: vec!["flag".to_string(), "seq".to_string(), "amt".to_string(), "price".to_string()],
+            column_types: vec!["bit".to_string(), "serial".to_string(), "dec(10,2)".to_string(), "fixed".to_string()],
+            rows: vec![vec![json!(1), json!(100), json!("9.99"), json!("3.14")]],
+        })
+        .expect("build workbook");
+
+        let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
+        // bit -> no right-align style (boolean flag, left-aligned like the grid)
+        assert!(sheet.contains("<c r=\"A2\"><v>1</v></c>"), "sheet={sheet}");
+        // serial / dec / fixed -> right-align style (numeric, matches grid)
+        assert!(sheet.contains("<c r=\"B2\" s=\"2\"><v>100</v></c>"), "sheet={sheet}");
+        assert!(sheet.contains("<c r=\"C2\" s=\"2\"><v>9.99</v></c>"), "sheet={sheet}");
+        assert!(sheet.contains("<c r=\"D2\" s=\"2\"><v>3.14</v></c>"), "sheet={sheet}");
     }
 
     #[test]
@@ -776,9 +824,9 @@ mod tests {
 
         let bytes = fs::read(&path).expect("read workbook");
         let sheet = read_zip_entry(&bytes, "xl/worksheets/sheet1.xml");
-        assert!(sheet.contains("<c r=\"A2\"><v>42</v></c>"));
-        assert!(sheet.contains("<c r=\"B2\"><v>123.5</v></c>"));
-        assert!(sheet.contains("<c r=\"C2\"><v>2800.000000</v></c>"));
+        assert!(sheet.contains("<c r=\"A2\" s=\"2\"><v>42</v></c>"));
+        assert!(sheet.contains("<c r=\"B2\" s=\"2\"><v>123.5</v></c>"));
+        assert!(sheet.contains("<c r=\"C2\" s=\"2\"><v>2800.000000</v></c>"));
         let _ = fs::remove_file(&path);
     }
 

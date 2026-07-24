@@ -124,6 +124,14 @@ describe("normalizeEditorSettings", () => {
     expect(invalid.dataGridHideNullColumns).toBe(false);
   });
 
+  it("defaults numericColumnRightAlign on and only turns off on explicit false", () => {
+    expect(normalizeEditorSettings({}).numericColumnRightAlign).toBe(true);
+    expect(normalizeEditorSettings({ numericColumnRightAlign: false }).numericColumnRightAlign).toBe(false);
+    // Non-false values keep it on (tolerant of legacy/odd persisted values)
+    expect(normalizeEditorSettings({ numericColumnRightAlign: "true" as any }).numericColumnRightAlign).toBe(true);
+    expect(normalizeEditorSettings({ numericColumnRightAlign: undefined }).numericColumnRightAlign).toBe(true);
+  });
+
   it("defaults the data grid font and preserves a custom font family", () => {
     const defaultFontFamily = `"Geist Variable Tabular", "Geist Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif`;
     expect(normalizeEditorSettings({}).tableFontFamily).toBe(defaultFontFamily);

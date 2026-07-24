@@ -312,6 +312,7 @@ const editShowColumnTypesInHeader = ref(settingsStore.editorSettings.showColumnT
 const editCompactColumnHeaderActions = ref(settingsStore.editorSettings.compactColumnHeaderActions);
 const editDataGridQuickEntry = ref(settingsStore.editorSettings.dataGridQuickEntry);
 const editDataGridAutoTransposeSingleRow = ref(settingsStore.editorSettings.dataGridAutoTransposeSingleRow);
+const editNumericColumnRightAlign = ref(settingsStore.editorSettings.numericColumnRightAlign);
 const editTableOpenPageSize = ref(settingsStore.editorSettings.tableOpenPageSize);
 const editInfiniteScroll = ref(settingsStore.editorSettings.infiniteScroll);
 const editInfiniteScrollMaxRows = ref(settingsStore.editorSettings.infiniteScrollMaxRows);
@@ -452,6 +453,7 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     compactColumnHeaderActions: editCompactColumnHeaderActions.value,
     dataGridQuickEntry: editDataGridQuickEntry.value,
     dataGridAutoTransposeSingleRow: editDataGridAutoTransposeSingleRow.value,
+    numericColumnRightAlign: editNumericColumnRightAlign.value,
     tableOpenPageSize: editTableOpenPageSize.value,
     infiniteScroll: editInfiniteScroll.value,
     infiniteScrollMaxRows: editInfiniteScrollMaxRows.value,
@@ -704,6 +706,7 @@ function syncEditorSettingsDraftFromStore() {
   editCompactColumnHeaderActions.value = settingsStore.editorSettings.compactColumnHeaderActions;
   editDataGridQuickEntry.value = settingsStore.editorSettings.dataGridQuickEntry;
   editDataGridAutoTransposeSingleRow.value = settingsStore.editorSettings.dataGridAutoTransposeSingleRow;
+  editNumericColumnRightAlign.value = settingsStore.editorSettings.numericColumnRightAlign;
   editTableOpenPageSize.value = settingsStore.editorSettings.tableOpenPageSize;
   editInfiniteScroll.value = settingsStore.editorSettings.infiniteScroll;
   editInfiniteScrollMaxRows.value = settingsStore.editorSettings.infiniteScrollMaxRows;
@@ -931,6 +934,7 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editCompactColumnHeaderActions.value = DEFAULT_EDITOR_SETTINGS.compactColumnHeaderActions;
     editDataGridQuickEntry.value = DEFAULT_EDITOR_SETTINGS.dataGridQuickEntry;
     editDataGridAutoTransposeSingleRow.value = DEFAULT_EDITOR_SETTINGS.dataGridAutoTransposeSingleRow;
+    editNumericColumnRightAlign.value = DEFAULT_EDITOR_SETTINGS.numericColumnRightAlign;
     editTableOpenPageSize.value = DEFAULT_EDITOR_SETTINGS.tableOpenPageSize;
     editInfiniteScroll.value = DEFAULT_EDITOR_SETTINGS.infiniteScroll;
     editInfiniteScrollMaxRows.value = DEFAULT_EDITOR_SETTINGS.infiniteScrollMaxRows;
@@ -991,6 +995,7 @@ function resetAllDefaults() {
   editCompactColumnHeaderActions.value = DEFAULT_EDITOR_SETTINGS.compactColumnHeaderActions;
   editDataGridQuickEntry.value = DEFAULT_EDITOR_SETTINGS.dataGridQuickEntry;
   editDataGridAutoTransposeSingleRow.value = DEFAULT_EDITOR_SETTINGS.dataGridAutoTransposeSingleRow;
+  editNumericColumnRightAlign.value = DEFAULT_EDITOR_SETTINGS.numericColumnRightAlign;
   editTableOpenPageSize.value = DEFAULT_EDITOR_SETTINGS.tableOpenPageSize;
   editInfiniteScroll.value = DEFAULT_EDITOR_SETTINGS.infiniteScroll;
   editInfiniteScrollMaxRows.value = DEFAULT_EDITOR_SETTINGS.infiniteScrollMaxRows;
@@ -3888,6 +3893,17 @@ onUnmounted(cleanupPreviewEditor);
                     </p>
                   </div>
                   <Switch id="data-grid-auto-transpose-single-row" v-model="editDataGridAutoTransposeSingleRow" />
+                </div>
+                <div class="flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
+                  <div class="space-y-1">
+                    <Label for="numeric-column-right-align">
+                      {{ t("settings.numericColumnRightAlign") }}
+                    </Label>
+                    <p class="text-xs text-muted-foreground">
+                      {{ t("settings.numericColumnRightAlignDescription") }}
+                    </p>
+                  </div>
+                  <Switch id="numeric-column-right-align" v-model="editNumericColumnRightAlign" />
                 </div>
                 <div class="flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                   <div class="space-y-1">

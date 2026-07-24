@@ -76,7 +76,7 @@ import { buildTableSelectSql, quoteTableDataIdentifier } from "@/lib/table/table
 import { tableOpenPageLimit } from "@/lib/table/tableOpenPageLimit";
 import { uuid } from "@/lib/common/utils";
 import { generateCellValues, type CellValueGenerationKind } from "@/lib/dataGrid/cellValueGeneration";
-import { compactHeaderColumnType, resolveHeaderColumnType } from "@/lib/dataGrid/dataGridColumnType";
+import { compactHeaderColumnType, isNumericColumnType, resolveHeaderColumnType } from "@/lib/dataGrid/dataGridColumnType";
 import {
   canDeleteExistingTdengineRows,
   canEditExistingTableRows,
@@ -1741,6 +1741,16 @@ const visibleColumnTypes = computed(() =>
   }),
 );
 const visibleColumnCount = computed(() => visibleColumnIndexes.value.length);
+
+/** Per-visible-column horizontal alignment. Numeric columns right-align when the
+ *  setting is on; everything else (text/date/binary) stays left-aligned. The
+ *  Transpose view reuses the same renderer but its columns are row labels, so
+ *  alignment is force-disabled there to avoid confusing right-aligned labels. */
+const numericColumnRightAlign = computed(() => settingsStore.editorSettings.numericColumnRightAlign && !showTranspose.value);
+const columnAligns = computed<("left" | "right")[]>(() => {
+  if (!numericColumnRightAlign.value) return [];
+  return visibleColumnTypes.value.map((type) => (isNumericColumnType(type) ? "right" : "left"));
+});
 
 /** Preview actions from the result preview registry for the current result. */
 const previewActions = computed(() => {
@@ -4925,6 +4935,7 @@ function drawCanvasGrid() {
     searchMatchKeys: searchMatchSet.value,
     currentSearchMatch: currentSearchMatch.value,
     formatCell: formatCellCached,
+    columnAligns: columnAligns.value,
     draftCellPlaceholder: t("grid.quickEntryDraftPlaceholder"),
     isRowActive,
     rowCellsUseSelectionVisual,
@@ -4947,6 +4958,9 @@ watch(
   { immediate: true },
 );
 watch(showDataGridTopbar, () => nextTick(observeDataGridTopbarWidth), { immediate: true });
+// Numeric column alignment (a view-options setting) changes cell text layout in
+// canvas mode; trigger a redraw so the new alignment is reflected immediately.
+watch(columnAligns, () => scheduleCanvasDraw());
 watch(
   [
     displayRowRefs,
@@ -8534,6 +8548,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                         'bg-yellow-200/60 dark:bg-yellow-500/20': cellIsSearchMatch(item.displayIndex, col.actualColIdx),
                         'ring-2 ring-inset ring-yellow-500 bg-yellow-300/60 dark:bg-yellow-500/40': cellIsCurrentMatch(item.displayIndex, col.actualColIdx),
                         'tabular-nums': typeof item.data[col.actualColIdx] === 'number',
+                        'text-right': columnAligns[col.visibleColIdx] === 'right',
                         'cursor-text hover:bg-gray-200 dark:hover:bg-gray-800': !isScrolling && canEditCellItem(item, col.actualColIdx),
                         'line-through': item.isDeleted,
                         'overflow-visible z-20 border-r-transparent': editingCell?.rowId === item.id && editingCell?.col === col.actualColIdx,

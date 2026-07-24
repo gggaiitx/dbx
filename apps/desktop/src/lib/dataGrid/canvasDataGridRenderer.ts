@@ -60,6 +60,7 @@ export interface DrawCanvasDataGridOptions {
   searchMatchKeys: ReadonlySet<number>;
   currentSearchMatch: CanvasSearchMatch | null;
   formatCell: (value: CellValue, columnIndex: number) => string;
+  columnAligns?: readonly ("left" | "right")[];
   draftCellPlaceholder?: string;
   isRowActive: (rowIndex: number) => boolean;
   rowCellsUseSelectionVisual: (rowId: number) => boolean;
@@ -236,6 +237,7 @@ export function drawCanvasDataGrid(options: DrawCanvasDataGridOptions) {
     searchMatchKeys,
     currentSearchMatch,
     formatCell,
+    columnAligns,
     draftCellPlaceholder,
     isRowActive,
     rowCellsUseSelectionVisual,
@@ -385,23 +387,26 @@ export function drawCanvasDataGrid(options: DrawCanvasDataGridOptions) {
       ctx.rect(clippedX, y, Math.min(cellPaintWidth, width - clippedX), CANVAS_DATA_GRID_ROW_HEIGHT);
       ctx.clip();
       const value = item.data[actualColIdx];
-      ctx.textAlign = "left";
+      const isRightAlign = columnAligns?.[visibleColIdx] === "right";
+      ctx.textAlign = isRightAlign ? "right" : "left";
       ctx.fillStyle = value === null ? theme.mutedForeground : theme.foreground;
       ctx.font = value === null ? italicFont : tabularFont;
       setCanvasNumericVariant(ctx, value === null ? "normal" : "tabular-nums");
-      const textLeft = alignCanvasPixel(drawX + 12, dpr);
+      const textAnchorX = alignCanvasPixel(isRightAlign ? drawX + colWidth - 12 : drawX + 12, dpr);
       const cellMaxWidth = Math.max(0, colWidth - 24);
       const isEditingThisCell = editingCell?.rowId === item.id && editingCell.col === actualColIdx;
       const rawDisplayText = item.isDraft && value === null ? (draftCellPlaceholder ?? "") : formatCell(value, actualColIdx);
       const displayText = isEditingThisCell ? "" : firstLineCellDisplayValue(rawDisplayText);
       const text = isEditingThisCell ? displayText : fitCanvasText(ctx, displayText, cellMaxWidth);
-      ctx.fillText(text, textLeft, textY);
+      ctx.fillText(text, textAnchorX, textY);
       if (item.isDeleted && text) {
         const textWidth = ctx.measureText(text).width;
+        const strikeStartX = isRightAlign ? alignCanvasPixel(textAnchorX - textWidth, dpr) : textAnchorX;
+        const strikeEndX = alignCanvasPixel(strikeStartX + textWidth, dpr);
         ctx.strokeStyle = theme.foreground;
         ctx.beginPath();
-        ctx.moveTo(textLeft, textY);
-        ctx.lineTo(alignCanvasPixel(textLeft + textWidth, dpr), textY);
+        ctx.moveTo(strikeStartX, textY);
+        ctx.lineTo(strikeEndX, textY);
         ctx.stroke();
       }
       ctx.restore();

@@ -420,6 +420,7 @@ export interface EditorSettings {
   dataGridAutoTransposeSingleRow: boolean;
   dataGridMultiRowTranspose: boolean;
   dataGridHideNullColumns: boolean;
+  numericColumnRightAlign: boolean;
   tableFontFamily: string;
   tableFontSize: number;
   structureEditorDensity: StructureEditorDensity;
@@ -583,6 +584,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   dataGridAutoTransposeSingleRow: false,
   dataGridMultiRowTranspose: false,
   dataGridHideNullColumns: false,
+  numericColumnRightAlign: true,
   tableFontFamily: DEFAULT_DATA_GRID_FONT_FAMILY,
   tableFontSize: TABLE_FONT_SIZE_DEFAULT,
   structureEditorDensity: "compact",
@@ -861,6 +863,7 @@ export function normalizeEditorSettings(settings: Partial<EditorSettings>, exist
     dataGridAutoTransposeSingleRow: settings.dataGridAutoTransposeSingleRow === true,
     dataGridMultiRowTranspose: settings.dataGridMultiRowTranspose === true,
     dataGridHideNullColumns: settings.dataGridHideNullColumns === true,
+    numericColumnRightAlign: settings.numericColumnRightAlign !== false,
     tableFontFamily: normalizeFontFamily(settings.tableFontFamily, DEFAULT_EDITOR_SETTINGS.tableFontFamily),
     tableFontSize: normalizeTableFontSize(settings.tableFontSize),
     structureEditorDensity: normalizeStructureEditorDensity(settings.structureEditorDensity),
@@ -1232,6 +1235,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (partial.dataGridAutoTransposeSingleRow !== undefined) editorSettings.value.dataGridAutoTransposeSingleRow = partial.dataGridAutoTransposeSingleRow === true;
     if (partial.dataGridMultiRowTranspose !== undefined) editorSettings.value.dataGridMultiRowTranspose = partial.dataGridMultiRowTranspose === true;
     if (partial.dataGridHideNullColumns !== undefined) editorSettings.value.dataGridHideNullColumns = partial.dataGridHideNullColumns === true;
+    if (partial.numericColumnRightAlign !== undefined) editorSettings.value.numericColumnRightAlign = partial.numericColumnRightAlign !== false;
     if (partial.tableFontFamily !== undefined) editorSettings.value.tableFontFamily = normalizeFontFamily(partial.tableFontFamily, DEFAULT_EDITOR_SETTINGS.tableFontFamily);
     if (partial.tableFontSize !== undefined) editorSettings.value.tableFontSize = normalizeTableFontSize(partial.tableFontSize);
     if (partial.structureEditorDensity !== undefined) editorSettings.value.structureEditorDensity = normalizeStructureEditorDensity(partial.structureEditorDensity);

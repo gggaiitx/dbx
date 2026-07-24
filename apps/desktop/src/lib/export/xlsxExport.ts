@@ -1,3 +1,5 @@
+import { isNumericColumnType } from "@/lib/dataGrid/dataGridColumnType";
+
 export type XlsxCellValue = string | number | boolean | null | undefined;
 
 export interface XlsxWorksheetData {
@@ -104,43 +106,8 @@ function estimateColumnWidths(columns: readonly string[], rows: readonly (readon
   });
 }
 
-function isNumericColumnType(columnType?: string): boolean {
-  const base = (columnType || "")
-    .trim()
-    .toLowerCase()
-    .split(/[\s([]/, 1)[0];
-  return new Set([
-    "bit",
-    "tinyint",
-    "smallint",
-    "mediumint",
-    "int",
-    "integer",
-    "bigint",
-    "int2",
-    "int4",
-    "int8",
-    "uint8",
-    "uint16",
-    "uint32",
-    "uint64",
-    "uint128",
-    "uint256",
-    "float",
-    "float4",
-    "float8",
-    "float32",
-    "float64",
-    "real",
-    "double",
-    "decimal",
-    "numeric",
-    "number",
-    "money",
-    "smallmoney",
-  ]).has(base);
-}
-
+// Reuse the grid's canonical numeric-type detector so XLSX exports stay
+// aligned with the in-app grid (bit/bool are NOT numeric; serial/dec/fixed are).
 function safeExcelNumber(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed || !Number.isFinite(Number(trimmed))) return undefined;
@@ -178,7 +145,7 @@ function worksheetXml(data: XlsxWorksheetData): string {
   const bodyXml = rows
     .map((row, rowIndex) => {
       const excelRowIndex = rowIndex + 2;
-      const cells = columns.map((_, colIndex) => cellXml(row[colIndex], excelRowIndex - 1, colIndex, undefined, data.columnTypes?.[colIndex])).join("");
+      const cells = columns.map((_, colIndex) => cellXml(row[colIndex], excelRowIndex - 1, colIndex, numericColumnStyle(data.columnTypes?.[colIndex]), data.columnTypes?.[colIndex])).join("");
       return `<row r="${excelRowIndex}">${cells}</row>`;
     })
     .join("");
@@ -237,9 +204,16 @@ function stylesXml(): string {
   <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
   <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>
+  <cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="right"/></xf></cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
+}
+
+/** cellXfs index for the numeric right-aligned style (index 2). */
+const NUMERIC_RIGHT_ALIGN_STYLE_INDEX = 2;
+
+function numericColumnStyle(columnType?: string): number | undefined {
+  return isNumericColumnType(columnType) ? NUMERIC_RIGHT_ALIGN_STYLE_INDEX : undefined;
 }
 
 function uint16(value: number): Uint8Array {

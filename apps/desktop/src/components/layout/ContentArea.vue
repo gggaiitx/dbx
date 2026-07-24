@@ -5,7 +5,7 @@ import { appendDebugLog, isDebugLoggingEnabled } from "@/lib/backend/debugLog";
 import { canReloadUnavailableDataTab } from "@/lib/table/tableDataRefresh";
 import type { CSSProperties } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Columns3, Columns3Cog, EyeOff, Loader2, Search, TableProperties, ChevronDown, ChevronUp, Inbox, RefreshCcw, Wrench, Toolbox, Database, Download, Upload, X, Pin, Rows3, SquareDashed, Minus, Plus, ShieldAlert } from "@lucide/vue";
+import { Check, Columns3, Columns3Cog, EyeOff, Loader2, Search, TableProperties, ChevronDown, ChevronUp, Inbox, RefreshCcw, Wrench, Toolbox, Database, Download, Upload, X, Pin, Rows3, SquareDashed, Minus, Plus, ShieldAlert, AlignLeft, AlignRight } from "@lucide/vue";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
 import { Button } from "@/components/ui/button";
@@ -209,6 +209,7 @@ const columnVisibilityOptions = computed(() => dataGridRef.value?.filteredColumn
 const dataGridRenderMode = computed(() => settingsStore.editorSettings.dataGridRenderMode);
 const dataGridSearchMode = computed(() => settingsStore.editorSettings.dataGridSearchMode);
 const columnWidthDensity = computed(() => settingsStore.editorSettings.columnWidthDensity);
+const numericColumnRightAlign = computed(() => settingsStore.editorSettings.numericColumnRightAlign);
 const tableFontSize = computed(() => settingsStore.editorSettings.tableFontSize);
 const redisKeyBrowserRef = ref<SearchableBrowserHandle>();
 const documentBrowserRef = ref<SearchableBrowserHandle>();
@@ -241,6 +242,10 @@ function findNodeInTree(nodes: TreeNode[], id: string): TreeNode | undefined {
 
 function setDataGridRenderMode(value: "canvas" | "dom") {
   settingsStore.updateEditorSettings({ dataGridRenderMode: value });
+}
+
+function setNumericColumnRightAlign(value: boolean) {
+  settingsStore.updateEditorSettings({ numericColumnRightAlign: value });
 }
 
 function setDataGridSearchMode(value: DataGridSearchMode) {
@@ -1008,6 +1013,32 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
                     </div>
                     <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
                       <div class="min-w-0 flex items-center gap-2 font-medium">
+                        <component :is="numericColumnRightAlign ? AlignRight : AlignLeft" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span>{{ t("grid.numericColumnAlign") }}</span>
+                      </div>
+                      <div class="grid w-32 grid-cols-2 rounded-md border bg-muted/40 p-0.5">
+                        <button
+                          type="button"
+                          class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                          :class="!numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                          :aria-label="t('grid.numericColumnAlignLeft')"
+                          @click="setNumericColumnRightAlign(false)"
+                        >
+                          {{ t("grid.numericColumnAlignLeft") }}
+                        </button>
+                        <button
+                          type="button"
+                          class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                          :class="numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                          :aria-label="t('grid.numericColumnAlignRight')"
+                          @click="setNumericColumnRightAlign(true)"
+                        >
+                          {{ t("grid.numericColumnAlignRight") }}
+                        </button>
+                      </div>
+                    </div>
+                    <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                      <div class="min-w-0 flex items-center gap-2 font-medium">
                         <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span>{{ t("grid.searchMode") }}</span>
                       </div>
@@ -1417,6 +1448,32 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
                     @click="increaseTableFontSize"
                   >
                     <Plus class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                <div class="min-w-0 flex items-center gap-2 font-medium">
+                  <component :is="numericColumnRightAlign ? AlignRight : AlignLeft" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span>{{ t("grid.numericColumnAlign") }}</span>
+                </div>
+                <div class="grid w-32 grid-cols-2 rounded-md border bg-muted/40 p-0.5">
+                  <button
+                    type="button"
+                    class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                    :class="!numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                    :aria-label="t('grid.numericColumnAlignLeft')"
+                    @click="setNumericColumnRightAlign(false)"
+                  >
+                    {{ t("grid.numericColumnAlignLeft") }}
+                  </button>
+                  <button
+                    type="button"
+                    class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                    :class="numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                    :aria-label="t('grid.numericColumnAlignRight')"
+                    @click="setNumericColumnRightAlign(true)"
+                  >
+                    {{ t("grid.numericColumnAlignRight") }}
                   </button>
                 </div>
               </div>

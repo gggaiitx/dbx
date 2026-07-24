@@ -3137,6 +3137,7 @@ export default withEnglishFallback({
     clearAll: "svuota tutto",
     filesCount: "totale {count} file",
     noSqlFilesInFolder: "nessun file .sql nella cartella selezionata",
+    parallelDisabledInWeb: "Modalità Web non supporta ancora l'esecuzione parallela, si prega di utilizzare l'esecuzione sequenziale.",
   },
   diff: {
     title: "Confronta Schemi",

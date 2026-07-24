@@ -2956,6 +2956,7 @@ export default withEnglishFallback({
     clearAll: "清空全部",
     filesCount: "共 {count} 個檔案",
     noSqlFilesInFolder: "所選資料夾中沒有 .sql 檔案",
+    parallelDisabledInWeb: "Web 模式暫不支援並行執行，請使用順序執行",
   },
   diff: {
     title: "比較架構",

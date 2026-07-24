@@ -3138,6 +3138,7 @@ export default withEnglishFallback({
     clearAll: "すべてクリア",
     filesCount: "全 {count} ファイル",
     noSqlFilesInFolder: "選択したフォルダに.sqlファイルがありません",
+    parallelDisabledInWeb: "Webモードでは並列実行は一時的にサポートされていません。順次実行を使用してください。",
   },
   diff: {
     title: "スキーマを比較",

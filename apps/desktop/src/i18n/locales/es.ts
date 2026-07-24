@@ -3139,6 +3139,7 @@ export default withEnglishFallback({
     clearAll: "Limpiar todo",
     filesCount: "Total {count} archivos",
     noSqlFilesInFolder: "No hay archivos .sql en la carpeta seleccionada",
+    parallelDisabledInWeb: "El modo web no admite temporalmente la ejecución en paralelo, use la ejecución secuencial.",
   },
   diff: {
     title: "Comparar esquemas",

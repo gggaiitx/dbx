@@ -41,7 +41,14 @@ pub async fn preview_sql_file(
         let file_name = field.file_name().unwrap_or("upload.sql").to_string();
         let data = field.bytes().await.map_err(|e| AppError::from(e.to_string()))?;
 
-        let file_path = safe_uploaded_sql_path(&tmp_dir, &file_name)?;
+        // Generate a unique upload subdirectory so that two files with the
+        // same basename (e.g. dirA/foo.sql and dirB/foo.sql) don't overwrite
+        // each other in the shared tmp directory.
+        let upload_id = uuid::Uuid::new_v4().to_string();
+        let upload_dir = tmp_dir.join(&upload_id);
+        std::fs::create_dir_all(&upload_dir).map_err(|e| AppError::from(e.to_string()))?;
+
+        let file_path = safe_uploaded_sql_path(&upload_dir, &file_name)?;
         std::fs::write(&file_path, &data).map_err(|e| AppError::from(e.to_string()))?;
 
         let size_bytes = data.len() as u64;

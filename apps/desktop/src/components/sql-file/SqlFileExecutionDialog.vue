@@ -396,6 +396,16 @@ async function refreshTargetAfterImport() {
   }
 }
 
+// In web mode, `executeSqlFile` (POST) returns immediately after the backend
+// spawns a background task — the POST resolving does NOT mean the file
+// finished. The real terminal status arrives later via SSE. We therefore
+// register a deferred promise per executionId that is resolved by
+// `applyProgress` when it observes a terminal status, and `runFile` awaits
+// that promise (racing with a safety timeout) before returning. In Tauri
+// mode `executeSqlFile` is synchronous and only resolves after completion, so
+// no waiting is needed and this map stays empty.
+const terminalResolvers = new Map<string, (status: BatchFileStatus) => void>();
+
 function applyProgress(next: SqlFileProgress) {
   const file = files.value.find((f) => f.executionId === next.executionId);
   if (!file) return;
@@ -405,6 +415,14 @@ function applyProgress(next: SqlFileProgress) {
   updateSqlFileTask(next.executionId, next);
   if (next.status === "done") {
     void refreshTargetAfterImport();
+  }
+  // Resolve the web-mode terminal promise so `runFile` can return.
+  if (isTerminalFileStatus(next.status)) {
+    const resolver = terminalResolvers.get(next.executionId);
+    if (resolver) {
+      terminalResolvers.delete(next.executionId);
+      resolver(next.status);
+    }
   }
 }
 
@@ -421,6 +439,18 @@ async function runFile(file: BatchFileItem): Promise<BatchFileStatus> {
   file.progress = null;
   file.error = "";
   addSqlFileTask(id, file.preview.fileName, file.preview.filePath);
+
+  const isWeb = !isTauriRuntime();
+  // Web: create a deferred that resolves when SSE delivers a terminal status.
+  // Tauri: executeSqlFile is synchronous, no deferred needed.
+  let resolveTerminal: (status: BatchFileStatus) => void = () => {};
+  const terminalPromise = isWeb
+    ? new Promise<BatchFileStatus>((resolve) => {
+        resolveTerminal = resolve;
+        terminalResolvers.set(id, resolveTerminal);
+      })
+    : null;
+
   try {
     await registerWebFileListener(id);
     await executeSqlFile({
@@ -430,24 +460,52 @@ async function runFile(file: BatchFileItem): Promise<BatchFileStatus> {
       filePath: file.preview.filePath,
       continueOnError: continueOnError.value,
     });
-    // If the progress stream never delivered a terminal status (e.g. the
-    // backend call returned before the last event arrived), synthesize one.
-    if (!isTerminalFileStatus(file.status)) {
-      file.status = cancelRequested.value ? "cancelled" : "done";
-      const lastProgress = file.progress as SqlFileProgress | null;
-      updateSqlFileTask(id, {
-        executionId: id,
-        status: file.status as SqlFileStatus,
-        statementIndex: lastProgress?.statementIndex ?? 0,
-        successCount: lastProgress?.successCount ?? 0,
-        failureCount: lastProgress?.failureCount ?? 0,
-        affectedRows: lastProgress?.affectedRows ?? 0,
-        elapsedMs: lastProgress?.elapsedMs ?? 0,
-        statementSummary: lastProgress?.statementSummary ?? "",
-        error: lastProgress?.error ?? null,
-      });
-      if (file.status === "done") {
-        await refreshTargetAfterImport();
+
+    if (isWeb) {
+      // The POST returned, but the background task is still running. Wait
+      // for the SSE stream to deliver a terminal status. Race with a safety
+      // timeout in case the SSE connection drops silently (onerror closes
+      // the EventSource without delivering a terminal event).
+      const timeout = new Promise<BatchFileStatus>((resolve) => setTimeout(() => resolve(cancelRequested.value ? "cancelled" : "error"), 600_000));
+      await Promise.race([terminalPromise!, timeout]);
+      // applyProgress already set file.status via the SSE handler. If it
+      // never fired (timeout), synthesize a terminal status.
+      if (!isTerminalFileStatus(file.status)) {
+        file.status = cancelRequested.value ? "cancelled" : "error";
+        file.error = file.error || "Timed out waiting for execution result";
+        const lastProgress = file.progress as SqlFileProgress | null;
+        updateSqlFileTask(id, {
+          executionId: id,
+          status: file.status as SqlFileStatus,
+          statementIndex: lastProgress?.statementIndex ?? 0,
+          successCount: lastProgress?.successCount ?? 0,
+          failureCount: lastProgress?.failureCount ?? 0,
+          affectedRows: lastProgress?.affectedRows ?? 0,
+          elapsedMs: lastProgress?.elapsedMs ?? 0,
+          statementSummary: lastProgress?.statementSummary ?? "",
+          error: file.error,
+        });
+      }
+    } else {
+      // Tauri: executeSqlFile is synchronous — the file is done now.
+      // Synthesize a terminal status if the progress stream missed it.
+      if (!isTerminalFileStatus(file.status)) {
+        file.status = cancelRequested.value ? "cancelled" : "done";
+        const lastProgress = file.progress as SqlFileProgress | null;
+        updateSqlFileTask(id, {
+          executionId: id,
+          status: file.status as SqlFileStatus,
+          statementIndex: lastProgress?.statementIndex ?? 0,
+          successCount: lastProgress?.successCount ?? 0,
+          failureCount: lastProgress?.failureCount ?? 0,
+          affectedRows: lastProgress?.affectedRows ?? 0,
+          elapsedMs: lastProgress?.elapsedMs ?? 0,
+          statementSummary: lastProgress?.statementSummary ?? "",
+          error: lastProgress?.error ?? null,
+        });
+        if (file.status === "done") {
+          await refreshTargetAfterImport();
+        }
       }
     }
   } catch (e: any) {
@@ -468,6 +526,8 @@ async function runFile(file: BatchFileItem): Promise<BatchFileStatus> {
     if (!cancelRequested.value) {
       toast(`${file.preview.fileName}: ${file.error}`, 5000);
     }
+  } finally {
+    terminalResolvers.delete(id);
   }
   return file.status;
 }
@@ -614,10 +674,20 @@ watch(sqlConnections, () => {
 
 watch(
   open,
-  async (value) => {
-    if (!value) {
+  async (value, _old, onCleanup) => {
+    // `invalidated` is set to true by the cleanup function when the watcher
+    // is re-triggered (e.g. the dialog closes while an async step is still
+    // in flight). Each async continuation checks this flag before proceeding
+    // so we don't register drag-drop listeners or add files to a dialog that
+    // has already been closed.
+    let invalidated = false;
+    onCleanup(() => {
+      invalidated = true;
       dragDropUnlisten?.();
       dragDropUnlisten = undefined;
+    });
+
+    if (!value) {
       // Restore global file-drop handling once the dialog closes.
       setFileDropIntercepted(false);
       return;
@@ -635,8 +705,15 @@ watch(
     // single-file experience.
     if (props.prefillFilePath) {
       await addFilePaths([props.prefillFilePath]);
+      if (invalidated) return;
     }
     await registerDragDrop();
+    if (invalidated) {
+      // The dialog closed while `registerDragDrop` was in flight — clean up
+      // the listener that was just registered.
+      dragDropUnlisten?.();
+      dragDropUnlisten = undefined;
+    }
   },
   { immediate: true },
 );

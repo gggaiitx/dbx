@@ -1,13 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import {
-  collectSqlPaths,
-  aggregateFileProgress,
-  computeBatchTerminalStatus,
-  shouldContinueBatch,
-  runWithConcurrency,
-  isTerminalFileStatus,
-} from "../../apps/desktop/src/lib/sql/sqlFileBatch.ts";
+import { collectSqlPaths, aggregateFileProgress, computeBatchTerminalStatus, shouldContinueBatch, runWithConcurrency, isTerminalFileStatus } from "../../apps/desktop/src/lib/sql/sqlFileBatch.ts";
 import type { SqlFileEntry, SqlFileProgress } from "../../apps/desktop/src/lib/backend/api.ts";
 
 function entry(name: string, path: string, isDir = false, children: SqlFileEntry[] = []): SqlFileEntry {
@@ -38,13 +31,7 @@ test("collectSqlPaths flattens a flat file list", () => {
 });
 
 test("collectSqlPaths recurses into nested directories depth-first", () => {
-  const entries = [
-    entry("d1", "/f/d1", true, [
-      entry("c.sql", "/f/d1/c.sql"),
-      entry("d2", "/f/d1/d2", true, [entry("e.sql", "/f/d1/d2/e.sql")]),
-    ]),
-    entry("f.sql", "/f/f.sql"),
-  ];
+  const entries = [entry("d1", "/f/d1", true, [entry("c.sql", "/f/d1/c.sql"), entry("d2", "/f/d1/d2", true, [entry("e.sql", "/f/d1/d2/e.sql")])]), entry("f.sql", "/f/f.sql")];
   assert.deepEqual(collectSqlPaths(entries), ["/f/d1/c.sql", "/f/d1/d2/e.sql", "/f/f.sql"]);
 });
 
@@ -71,10 +58,7 @@ test("collectSqlPaths guards against cyclic directory paths", () => {
 // ---------------------------------------------------------------------------
 
 test("aggregateFileProgress sums counts and takes max for index/elapsed", () => {
-  const result = aggregateFileProgress([
-    progress({ successCount: 3, failureCount: 1, affectedRows: 10, statementIndex: 4, elapsedMs: 100 }),
-    progress({ successCount: 2, failureCount: 0, affectedRows: 5, statementIndex: 2, elapsedMs: 250 }),
-  ]);
+  const result = aggregateFileProgress([progress({ successCount: 3, failureCount: 1, affectedRows: 10, statementIndex: 4, elapsedMs: 100 }), progress({ successCount: 2, failureCount: 0, affectedRows: 5, statementIndex: 2, elapsedMs: 250 })]);
   assert.deepEqual(result, { successCount: 5, failureCount: 1, affectedRows: 15, statementIndex: 4, elapsedMs: 250 });
 });
 
@@ -180,16 +164,12 @@ test("runWithConcurrency respects the concurrency cap", async () => {
   let active = 0;
   let maxActive = 0;
   const items = Array.from({ length: 10 }, (_, i) => i);
-  await runWithConcurrency(
-    items,
-    3,
-    async () => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await new Promise((r) => setTimeout(r, 10));
-      active -= 1;
-    },
-  );
+  await runWithConcurrency(items, 3, async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((r) => setTimeout(r, 10));
+    active -= 1;
+  });
   assert.ok(maxActive <= 3, `expected maxActive <= 3, got ${maxActive}`);
   assert.ok(maxActive >= 2, `expected some parallelism (maxActive >= 2), got ${maxActive}`);
 });

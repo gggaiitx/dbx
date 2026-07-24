@@ -2206,6 +2206,11 @@ export async function cancelSqlFileExecution(executionId: string): Promise<boole
   return invoke("cancel_sql_file_execution", { executionId });
 }
 
+// Tauri mode reads files directly from disk, so there is no uploaded temp
+// file to release. This stub exists only to satisfy the shared backend API
+// surface; it is never called in the desktop runtime.
+export async function releaseSqlFileUpload(_filePath: string): Promise<void> {}
+
 export async function listenSqlFileProgress(handler: (progress: SqlFileProgress) => void): Promise<UnlistenFn> {
   return listen<SqlFileProgress>("sql-file-progress", (event) => handler(event.payload));
 }

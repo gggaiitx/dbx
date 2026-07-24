@@ -17,7 +17,7 @@ import { useProductionSafetyStore } from "@/stores/productionSafetyStore";
 import { productionContextForDatabase } from "@/lib/database/productionSafety";
 import { fetchSqlFileTargetOptions } from "@/composables/useDatabaseOptions";
 import { requiresSqlFileTargetDatabaseSelection } from "@/lib/connection/connectionLevelDatabaseBootstrap";
-import { cancelSqlFileExecution, executeSqlFile, listenSqlFileProgress, previewSqlFile, type SqlFilePreview, type SqlFileProgress, type SqlFileStatus } from "@/lib/backend/api";
+import { cancelSqlFileExecution, executeSqlFile, listenSqlFileProgress, previewSqlFile, releaseSqlFileUpload, type SqlFilePreview, type SqlFileProgress, type SqlFileStatus } from "@/lib/backend/api";
 import * as api from "@/lib/backend/api";
 import { useExportTracker } from "@/composables/useExportTracker";
 import { setFileDropIntercepted } from "@/composables/useFileDrop";
@@ -61,6 +61,10 @@ const databaseOptions = ref<string[]>([]);
 const loadingDatabases = ref(false);
 const continueOnError = ref(false);
 const executionMode = ref<"sequential" | "parallel">("sequential");
+// Web mode loads each uploaded file fully into memory via std::fs::read, so
+// parallel execution of several large files can exhaust memory. Parallel mode
+// is disabled in web mode until streaming execution is available.
+const isWebMode = computed(() => !isTauriRuntime());
 
 const running = ref(false);
 const cancelling = ref(false);
@@ -354,11 +358,20 @@ async function handleDrop(event: DragEvent) {
 
 function removeFile(id: string) {
   if (running.value) return;
+  const file = files.value.find((f) => f.id === id);
+  if (file && isWebMode.value && !file.executionId) {
+    void releaseSqlFileUpload(file.preview.filePath).catch(() => {});
+  }
   files.value = files.value.filter((f) => f.id !== id);
 }
 
 function clearFiles() {
   if (running.value) return;
+  if (isWebMode.value) {
+    for (const f of files.value) {
+      if (!f.executionId) void releaseSqlFileUpload(f.preview.filePath).catch(() => {});
+    }
+  }
   files.value = [];
 }
 
@@ -452,7 +465,6 @@ async function runFile(file: BatchFileItem): Promise<BatchFileStatus> {
     : null;
 
   try {
-    await registerWebFileListener(id);
     await executeSqlFile({
       executionId: id,
       connectionId: connectionId.value,
@@ -462,6 +474,13 @@ async function runFile(file: BatchFileItem): Promise<BatchFileStatus> {
     });
 
     if (isWeb) {
+      // Subscribe to SSE only after the POST has successfully created the
+      // task. The backend waits for the channel to appear (and saves the
+      // terminal progress for late subscribers), so ordering POST before
+      // GET avoids the race where the progress request arrives before the
+      // channel is registered and the SSE error handler closes the
+      // connection before the task even starts.
+      await registerWebFileListener(id);
       // The POST returned, but the background task is still running. Wait
       // for the SSE stream to deliver a terminal status. Race with a safety
       // timeout in case the SSE connection drops silently (onerror closes
@@ -588,7 +607,10 @@ async function startExecution() {
     }
 
     executionStarted.value = true;
-    if (executionMode.value === "sequential") {
+    // Web mode loads each uploaded file fully into memory, so parallel
+    // execution of several large files can exhaust memory. Force sequential
+    // execution in web mode until streaming execution is available.
+    if (executionMode.value === "sequential" || isWebMode.value) {
       for (const f of files.value) {
         if (cancelRequested.value) {
           f.status = "cancelled";
@@ -690,6 +712,15 @@ watch(
     if (!value) {
       // Restore global file-drop handling once the dialog closes.
       setFileDropIntercepted(false);
+      // Release uploaded temp files for previewed-but-unexecuted files when
+      // the dialog closes in web mode. Files that were already executed have
+      // already been deleted by the backend's finalize_execution; the release
+      // endpoint is idempotent so double deletion is harmless.
+      if (isWebMode.value && !running.value) {
+        for (const f of files.value) {
+          if (!f.executionId) void releaseSqlFileUpload(f.preview.filePath).catch(() => {});
+        }
+      }
       return;
     }
     if (running.value) return;
@@ -857,7 +888,14 @@ onUnmounted(() => {
               <button type="button" class="px-2.5 py-1 transition-colors" :class="executionMode === 'sequential' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'" :disabled="running" @click="executionMode = 'sequential'">
                 {{ t("sqlFile.sequential") }}
               </button>
-              <button type="button" class="px-2.5 py-1 transition-colors border-l border-border" :class="executionMode === 'parallel' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'" :disabled="running" @click="executionMode = 'parallel'">
+              <button
+                type="button"
+                class="px-2.5 py-1 transition-colors border-l border-border"
+                :class="executionMode === 'parallel' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+                :disabled="running || isWebMode"
+                :title="isWebMode ? t('sqlFile.parallelDisabledInWeb') : undefined"
+                @click="executionMode = 'parallel'"
+              >
                 {{ t("sqlFile.parallel") }}
               </button>
             </div>

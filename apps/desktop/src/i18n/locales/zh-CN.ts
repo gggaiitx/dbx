@@ -3299,6 +3299,7 @@ export default withEnglishFallback({
     executionMode: "执行方式",
     sequential: "顺序执行",
     parallel: "并行执行",
+    parallelDisabledInWeb: "Web 模式暂不支持并行执行，请使用顺序执行",
     continueOnError: "出错后继续",
     selectFolder: "选择文件夹",
     noFiles: "未选择 SQL 文件",

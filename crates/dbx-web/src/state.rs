@@ -1,4 +1,5 @@
 use dbx_core::connection::AppState;
+use dbx_core::sql::SqlFileProgress;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,6 +24,12 @@ pub struct WebState {
     pub login_rate_limit: Mutex<LoginRateLimit>,
     /// Table export temp files: export_id -> (file_path, format)
     pub export_files: RwLock<HashMap<String, (String, String)>>,
+    /// Terminal progress for SQL file executions that have already finished,
+    /// so late SSE subscribers (GET arrives after the task completed and the
+    /// channel was cleaned up) can still retrieve the final status. The
+    /// `Instant` records when the terminal progress was stored; entries older
+    /// than the TTL are evicted lazily on read.
+    pub sql_file_terminal_progress: RwLock<HashMap<String, (SqlFileProgress, std::time::Instant)>>,
 }
 
 impl WebState {

@@ -3309,6 +3309,7 @@ export default {
     executionMode: "Execution mode",
     sequential: "Sequential",
     parallel: "Parallel",
+    parallelDisabledInWeb: "Parallel execution is not available in web mode. Use sequential execution.",
     continueOnError: "Continue on error",
     selectFolder: "Select folder",
     noFiles: "No SQL files selected",

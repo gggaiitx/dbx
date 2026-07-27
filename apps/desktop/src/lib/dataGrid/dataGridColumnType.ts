@@ -32,6 +32,44 @@ export function compactHeaderColumnType(dataType: string): string {
   return /^enum\s*\(/i.test(dataType.trim()) ? "enum" : dataType;
 }
 
+/**
+ * Resolve the data type used to drive per-column alignment and other
+ * type-driven rendering in the query-result grid.
+ *
+ * Unlike {@link resolveHeaderColumnType}, the **ResultSet `column_types` wins
+ * over table metadata** for alignment purposes.  Table metadata is matched by
+ * the source column name and reflects the underlying column declaration, so
+ * relying on it for alignment produces wrong results when the query casts the
+ * value to a different type — e.g. `SELECT CAST(amount AS TEXT) AS amount`
+ * would still look numeric and be right-aligned.  The actual ResultSet type
+ * (`text`) reflects what the user sees and must take precedence.  Table
+ * metadata is only consulted when the ResultSet does not supply a non-empty
+ * type for that index.
+ */
+export interface ResultColumnTypeResolution {
+  /** Type reported by the ResultSet for this column (by index). */
+  resultColumnType?: string;
+  /** Lower-cased name of the column in the ResultSet. */
+  resultColumnName?: string;
+  /** Lower-cased name of the underlying source column, when known. */
+  sourceColumnName?: string;
+  /** Map of lower-cased column name -> table metadata type. */
+  tableColumnTypesByName?: ReadonlyMap<string, string>;
+}
+
+export function resolveResultColumnType({ resultColumnType, resultColumnName, sourceColumnName, tableColumnTypesByName }: ResultColumnTypeResolution): string | undefined {
+  const fromResult = resultColumnType?.trim();
+  if (fromResult) return fromResult;
+
+  const lookup = tableColumnTypesByName ?? EMPTY_STRING_MAP;
+  const fromSource = sourceColumnName ? lookup.get(sourceColumnName) : undefined;
+  if (fromSource && fromSource.trim()) return fromSource;
+  const fromResultName = resultColumnName ? lookup.get(resultColumnName) : undefined;
+  return fromResultName && fromResultName.trim() ? fromResultName : undefined;
+}
+
+const EMPTY_STRING_MAP: ReadonlyMap<string, string> = new Map();
+
 const NUMERIC_COLUMN_TYPE_BASES = new Set([
   "tinyint",
   "smallint",
@@ -45,6 +83,12 @@ const NUMERIC_COLUMN_TYPE_BASES = new Set([
   "int2",
   "int4",
   "int8",
+  "int16",
+  "int32",
+  "int64",
+  "int128",
+  "int256",
+  "intn",
   "uint",
   "uint8",
   "uint16",
@@ -55,17 +99,27 @@ const NUMERIC_COLUMN_TYPE_BASES = new Set([
   "float",
   "float4",
   "float8",
+  "float16",
   "float32",
   "float64",
+  "floatn",
   "real",
   "double",
   "decimal",
+  "decimal32",
+  "decimal64",
+  "decimal128",
+  "decimal256",
+  "decimaln",
   "numeric",
+  "numericn",
   "number",
   "dec",
   "fixed",
   "money",
+  "moneyn",
   "smallmoney",
+  "smallmoneyn",
   "binary_float",
   "binary_double",
 ]);

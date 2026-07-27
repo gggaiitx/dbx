@@ -2541,6 +2541,7 @@ export interface TableExportRequest {
   batchSize?: number;
   rowLimit?: number | null;
   dateTimeFormat?: string;
+  numericColumnRightAlign?: boolean;
 }
 
 export interface TableCsvExportOptions {
@@ -2584,6 +2585,7 @@ export interface QueryResultExportRequest {
   clientSessionId?: string;
   executionId?: string;
   dateTimeFormat?: string;
+  numericColumnRightAlign?: boolean;
 }
 
 export async function startTableExport(request: TableExportRequest, onProgress: (progress: TableExportProgress) => void): Promise<TableExportProgress> {

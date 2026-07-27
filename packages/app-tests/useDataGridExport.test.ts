@@ -720,7 +720,7 @@ test("complete local query result XLSX export does not re-execute the query", as
   assert.equal(fullExportResult.mock.calls.length, 0);
   assert.equal(queryResultExportRequest.mock.calls.length, 0);
   assert.equal(apiMock.startQueryResultExport.mock.calls.length, 0);
-  assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0]?.slice(1), ["Export", ["id", "name"], ["int4", "text"], completeLocalResult.rows]);
+  assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0]?.slice(1, 5), ["Export", ["id", "name"], ["int4", "text"], completeLocalResult.rows]);
 });
 
 test("MySQL joined query SQL export keeps result aliases instead of source column names", async () => {
@@ -803,7 +803,7 @@ test("complete local query result export removes only internal hidden columns", 
 
   await composable.exportXlsx();
 
-  assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0]?.slice(1), [
+  assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0]?.slice(1, 5), [
     "Export",
     ["id", "name"],
     ["int4", "text"],
@@ -978,6 +978,35 @@ test("selected query result XLSX export uses the current source label as the she
   assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0][2], ["id", "name"]);
   assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0][3], ["bigint(20)", "varchar(64)"]);
   assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0][4], [[1, "Ada"]]);
+});
+
+test("selected query result XLSX export forwards the numericColumnRightAlign setting to the backend", async () => {
+  const settingsStore = useSettingsStore();
+  settingsStore.updateEditorSettings({ numericColumnRightAlign: false });
+  const { composable } = buildExportHarness({ columnTypes: ["bigint(20)", "varchar(64)"] });
+
+  await composable.exportXlsx([1]);
+
+  assert.equal(apiMock.exportQueryResultXlsx.mock.calls.length, 1);
+  // Argument 5 is `numericColumnRightAlign`, and must reflect the persisted
+  // setting rather than always defaulting to true.
+  assert.equal(apiMock.exportQueryResultXlsx.mock.calls[0][5], false);
+
+  settingsStore.updateEditorSettings({ numericColumnRightAlign: true });
+  await composable.exportXlsx([1]);
+  assert.equal(apiMock.exportQueryResultXlsx.mock.calls[1][5], true);
+});
+
+test("streaming query result XLSX export carries numericColumnRightAlign in the backend request", async () => {
+  const settingsStore = useSettingsStore();
+  settingsStore.updateEditorSettings({ numericColumnRightAlign: false });
+  const { composable, queryResultExportRequest } = buildExportHarness();
+
+  await composable.exportXlsxWithSql();
+
+  assert.equal(queryResultExportRequest.mock.calls.length, 1);
+  assert.equal(apiMock.startQueryResultExport.mock.calls.length, 1);
+  assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].numericColumnRightAlign, false);
 });
 
 test("streaming XLSX with SQL marks the backend request as opt in", async () => {

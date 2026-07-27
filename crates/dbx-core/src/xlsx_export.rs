@@ -7,6 +7,7 @@ use crate::temporal_format::{excel_temporal_serial, ExcelTemporalKind};
 const XLSX_DATE_STYLE: usize = 2;
 const XLSX_DATETIME_STYLE: usize = 3;
 const NUMERIC_RIGHT_ALIGN_STYLE: usize = 4;
+const NUMERIC_LEFT_ALIGN_STYLE: usize = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -353,6 +354,12 @@ fn is_numeric_column_type(column_type: Option<&String>) -> bool {
             | "int2"
             | "int4"
             | "int8"
+            | "int16"
+            | "int32"
+            | "int64"
+            | "int128"
+            | "int256"
+            | "intn"
             | "uint"
             | "uint8"
             | "uint16"
@@ -363,27 +370,40 @@ fn is_numeric_column_type(column_type: Option<&String>) -> bool {
             | "float"
             | "float4"
             | "float8"
+            | "float16"
             | "float32"
             | "float64"
+            | "floatn"
             | "real"
             | "double"
             | "decimal"
+            | "decimal32"
+            | "decimal64"
+            | "decimal128"
+            | "decimal256"
+            | "decimaln"
             | "numeric"
+            | "numericn"
             | "number"
             | "dec"
             | "fixed"
             | "money"
+            | "moneyn"
             | "smallmoney"
+            | "smallmoneyn"
             | "binary_float"
             | "binary_double"
     )
 }
 
 fn numeric_column_style(column_type: Option<&String>, enabled: bool) -> Option<usize> {
-    if enabled && is_numeric_column_type(column_type) {
+    if !is_numeric_column_type(column_type) {
+        return None;
+    }
+    if enabled {
         Some(NUMERIC_RIGHT_ALIGN_STYLE)
     } else {
-        None
+        Some(NUMERIC_LEFT_ALIGN_STYLE)
     }
 }
 
@@ -662,7 +682,7 @@ fn styles_xml(date_time_format: Option<&str>) -> String {
             "<fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills>",
             "<borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>",
             "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>",
-            "<cellXfs count=\"5\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\"/><xf numFmtId=\"164\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyNumberFormat=\"1\"/><xf numFmtId=\"165\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyNumberFormat=\"1\"/><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyAlignment=\"1\"><alignment horizontal=\"right\"/></xf></cellXfs>",
+            "<cellXfs count=\"6\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\"/><xf numFmtId=\"164\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyNumberFormat=\"1\"/><xf numFmtId=\"165\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyNumberFormat=\"1\"/><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyAlignment=\"1\"><alignment horizontal=\"right\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyAlignment=\"1\"><alignment horizontal=\"left\"/></xf></cellXfs>",
             "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>",
             "</styleSheet>"
         ),
@@ -730,7 +750,7 @@ mod tests {
         XlsxWorksheetData,
     };
     use calamine::{open_workbook_auto, Reader};
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::fs;
     use std::io::Read;
 
@@ -1080,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn numeric_right_align_disabled_strips_style() {
+    fn numeric_right_align_disabled_applies_left_align_style_5() {
         let workbook = build_xlsx_workbook(&XlsxWorksheetData {
             sheet_name: Some("Disabled".to_string()),
             columns: vec!["amount".to_string(), "label".to_string()],
@@ -1090,7 +1110,52 @@ mod tests {
         })
         .expect("build workbook");
         let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
-        assert!(sheet.contains(r#"<c r="A2"><v>1.5</v></c>"#), "sheet={sheet}");
+        // Numeric column A should have left-align style (s="5"), not right-align (s="4"),
+        // to override Excel's default right alignment for number cells.
+        assert!(sheet.contains(r#"<c r="A2" s="5"><v>1.5</v></c>"#), "sheet={sheet}");
         assert!(!sheet.contains(r#"s="4""#));
+    }
+
+    #[test]
+    fn numeric_right_align_applies_across_database_numeric_types() {
+        // Ensures the Rust classifier covers the same cross-database numeric
+        // types as the frontend isNumericColumnType (ClickHouse wide integers,
+        // Oracle/Dameng binary floats, SQL Server internal type names, etc.).
+        let column_types = vec![
+            "Int16".to_string(),
+            "Int32".to_string(),
+            "Int64".to_string(),
+            "Int128".to_string(),
+            "UInt256".to_string(),
+            "Decimal128(18, 2)".to_string(),
+            "Float16".to_string(),
+            "BINARY_FLOAT".to_string(),
+            "BINARY_DOUBLE".to_string(),
+            "decimaln".to_string(),
+            "numericn".to_string(),
+            "intn".to_string(),
+            "floatn".to_string(),
+            "moneyn".to_string(),
+            "smallmoneyn".to_string(),
+            "varchar(50)".to_string(),
+        ];
+        let row: Vec<Value> = column_types.iter().map(|_| json!(1)).collect::<Vec<_>>();
+        let workbook = build_xlsx_workbook(&XlsxWorksheetData {
+            sheet_name: Some("CrossDb".to_string()),
+            columns: column_types.iter().map(|t| t.to_lowercase()).collect(),
+            column_types: column_types.clone(),
+            rows: vec![row],
+            numeric_column_right_align: true,
+        })
+        .expect("build workbook");
+        let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
+        for index in 0..column_types.len() - 1 {
+            let col_letter = ('A' as u8 + index as u8) as char;
+            let cell = format!(r#"<c r="{col_letter}2" s="4"><v>1</v></c>"#);
+            assert!(sheet.contains(&cell), "missing right-align style for {} (cell={cell})", column_types[index]);
+        }
+        // Text column (last) must not receive the numeric right-align style.
+        let last_letter = ('A' as u8 + column_types.len() as u8 - 1) as char;
+        assert!(!sheet.contains(&format!(r#"<c r="{last_letter}2" s="4""#)));
     }
 }

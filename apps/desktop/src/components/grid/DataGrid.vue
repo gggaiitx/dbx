@@ -76,7 +76,7 @@ import { buildTableSelectSql, quoteTableDataIdentifier } from "@/lib/table/table
 import { tableOpenPageLimit } from "@/lib/table/tableOpenPageLimit";
 import { uuid } from "@/lib/common/utils";
 import { generateCellValues, type CellValueGenerationKind } from "@/lib/dataGrid/cellValueGeneration";
-import { compactHeaderColumnType, isNumericColumnType, resolveHeaderColumnType } from "@/lib/dataGrid/dataGridColumnType";
+import { compactHeaderColumnType, isNumericColumnType, resolveHeaderColumnType, resolveResultColumnType } from "@/lib/dataGrid/dataGridColumnType";
 import {
   canDeleteExistingTdengineRows,
   canEditExistingTableRows,
@@ -1744,17 +1744,18 @@ const tableColumnTypesByName = computed(() => {
   return map;
 });
 const visibleColumnTypes = computed(() =>
-  visibleColumnIndexes.value.map((index) => {
-    const resultType = props.result.column_types?.[index];
-    if (resultType && resultType.trim()) return resultType;
-    const resultColumn = props.result.columns[index]?.toLocaleLowerCase();
-    const sourceColumn = props.sourceColumns?.[index]?.toLocaleLowerCase();
-    return (sourceColumn ? tableColumnTypesByName.value.get(sourceColumn) : undefined) || (resultColumn ? tableColumnTypesByName.value.get(resultColumn) : undefined);
-  }),
+  visibleColumnIndexes.value.map((index) =>
+    resolveResultColumnType({
+      resultColumnType: props.result.column_types?.[index],
+      resultColumnName: props.result.columns[index]?.toLocaleLowerCase(),
+      sourceColumnName: props.sourceColumns?.[index]?.toLocaleLowerCase(),
+      tableColumnTypesByName: tableColumnTypesByName.value,
+    }),
+  ),
 );
 const visibleColumnCount = computed(() => visibleColumnIndexes.value.length);
 
-const numericColumnRightAlign = computed(() => settingsStore.editorSettings.numericColumnRightAlign && !showTranspose.value);
+const numericColumnRightAlign = computed(() => (settingsStore.editorSettings.numericColumnRightAlign ?? true) && !showTranspose.value);
 const columnAligns = computed<("left" | "right")[]>(() => {
   if (!numericColumnRightAlign.value) return [];
   return visibleColumnTypes.value.map((type) => (isNumericColumnType(type) ? "right" : "left"));

@@ -255,7 +255,7 @@ function setTableFontSize(value: number) {
   settingsStore.updateEditorSettings({ tableFontSize: value });
 }
 
-const numericColumnRightAlign = computed(() => settingsStore.editorSettings.numericColumnRightAlign);
+const numericColumnRightAlign = computed(() => settingsStore.editorSettings.numericColumnRightAlign ?? true);
 
 function setNumericColumnRightAlign(value: boolean) {
   settingsStore.updateEditorSettings({ numericColumnRightAlign: value });

@@ -290,7 +290,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
 
   async function writeXlsxResult(outputPath: string, result: { columns: string[]; columnTypes: string[]; rows: CellValue[][] }, includeSqlSheet: boolean) {
     const sqlWorksheet = includeSqlSheet ? buildXlsxSqlWorksheet([{ sql: currentExportSql() || "" }]) : undefined;
-    const rightAlign = settingsStore.editorSettings.numericColumnRightAlign;
+    const rightAlign = useSettingsStore().editorSettings.numericColumnRightAlign;
     if (!sqlWorksheet) {
       await api.exportQueryResultXlsx(outputPath, currentXlsxSheetName(), result.columns, result.columnTypes, result.rows, rightAlign);
       return;
@@ -1358,6 +1358,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
           batchSize: exportBatchSize.value,
           rowLimit,
           dateTimeFormat: editorSettings.globalDateTimeExportFormat || undefined,
+          numericColumnRightAlign: editorSettings.numericColumnRightAlign ?? true,
         },
         (progress) => {
           if (exportProgressState) {
@@ -1405,7 +1406,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
 
     const exportId = uuid();
     const baseRequest = await queryResultExportRequest({ exportId, filePath: outputPath, format, includeSqlSheet });
-    const request = baseRequest ? { ...baseRequest, dateTimeFormat: useSettingsStore().editorSettings.globalDateTimeExportFormat || undefined } : undefined;
+    const request = baseRequest ? { ...baseRequest, dateTimeFormat: useSettingsStore().editorSettings.globalDateTimeExportFormat || undefined, numericColumnRightAlign: useSettingsStore().editorSettings.numericColumnRightAlign ?? true } : undefined;
     if (!request) throw new Error("Unable to build query result export request");
 
     if (exportProgressState) {

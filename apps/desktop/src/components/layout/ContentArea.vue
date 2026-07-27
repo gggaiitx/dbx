@@ -5,7 +5,7 @@ import { appendDebugLog, isDebugLoggingEnabled } from "@/lib/backend/debugLog";
 import { canReloadUnavailableDataTab } from "@/lib/table/tableDataRefresh";
 import type { CSSProperties } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Columns3, Columns3Cog, EyeOff, Loader2, Search, TableProperties, ChevronDown, ChevronUp, Inbox, RefreshCcw, Wrench, Toolbox, Database, Download, Upload, X, Pin, Rows3, SquareDashed, Minus, Plus, ShieldAlert, AlignLeft, AlignRight } from "@lucide/vue";
+import { Check, Columns3, Columns3Cog, EyeOff, Loader2, Search, TableProperties, ChevronDown, ChevronUp, Inbox, RefreshCcw, Wrench, Toolbox, Database, Download, Upload, X, Pin, Rows3, SquareDashed, Minus, Plus, ShieldAlert, AlignLeft, AlignRight, PanelsTopLeft } from "@lucide/vue";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ const DataGrid = defineAsyncComponent(loadDataGridComponent);
 const RedisKeyBrowser = defineAsyncComponent(() => import("@/components/redis/RedisKeyBrowser.vue"));
 const RedisDashboard = defineAsyncComponent(() => import("@/components/redis/RedisDashboard.vue"));
 const EtcdKeyBrowser = defineAsyncComponent(() => import("@/components/etcd/EtcdKeyBrowser.vue"));
+const EtcdDashboard = defineAsyncComponent(() => import("@/components/etcd/EtcdDashboard.vue"));
 const ZooKeeperKeyBrowser = defineAsyncComponent(() => import("@/components/zookeeper/ZooKeeperKeyBrowser.vue"));
 const DocumentBrowser = defineAsyncComponent(() => import("@/components/document/DocumentBrowser.vue"));
 const MongoGridFsBrowser = defineAsyncComponent(() => import("@/components/document/MongoGridFsBrowser.vue"));
@@ -52,6 +53,7 @@ const VectorBrowser = defineAsyncComponent(() => import("@/components/vector/Vec
 const ElasticsearchJsonResponsePanel = defineAsyncComponent(() => import("@/components/common/ElasticsearchJsonResponsePanel.vue"));
 const MqAdminConsole = defineAsyncComponent(() => import("@/components/mq/MqAdminConsole.vue"));
 const NacosAdminConsole = defineAsyncComponent(() => import("@/components/nacos/NacosAdminConsole.vue"));
+const NacosDashboard = defineAsyncComponent(() => import("@/components/nacos/NacosDashboard.vue"));
 const ObjectBrowser = defineAsyncComponent(() => import("@/components/objects/ObjectBrowser.vue"));
 const TableStructureEditor = defineAsyncComponent(() => import("@/components/structure/TableStructureEditor.vue"));
 const DatabaseUserAdmin = defineAsyncComponent(() => import("@/components/admin/DatabaseUserAdmin.vue"));
@@ -63,7 +65,7 @@ const ExplainPlanViewer = defineAsyncComponent(() => import("@/components/explai
 const QueryChart = defineAsyncComponent(() => import("@/components/chart/QueryChart.vue"));
 import { useQueryStore } from "@/stores/queryStore";
 import { useConnectionStore } from "@/stores/connectionStore";
-import { TABLE_FONT_SIZE_MAX, TABLE_FONT_SIZE_MIN, useSettingsStore, type DataGridSearchMode } from "@/stores/settingsStore";
+import { TABLE_FONT_SIZE_MAX, TABLE_FONT_SIZE_MIN, useSettingsStore, type DataGridSearchMode, type ResultRunDisplayMode } from "@/stores/settingsStore";
 import { useToast } from "@/composables/useToast";
 import { canCancelQueryExecution, queryExecutionLabelKey } from "@/lib/sql/queryExecutionState";
 import { databaseDisplayNameForTab, executionSummaryItems, queryResultExecutionSql, resultGridCacheKey, resultRunItems, resultSourceRange, resultSqlForGrid, statementExecutionMarkers, tabularResultItems } from "@/lib/tabs/tabPresentation";
@@ -141,6 +143,7 @@ const emit = defineEmits<{
   fixWithAi: [errorMessage: string];
   sendSelectionToAi: [sql: string];
   execute: [sqlOverride?: SqlExecutionOverride];
+  executeInNewResultTab: [sqlOverride?: SqlExecutionOverride];
   saveSql: [];
   cancel: [];
   explain: [];
@@ -208,12 +211,14 @@ const columnVisibilitySearch = ref("");
 const columnVisibilityOptions = computed(() => dataGridRef.value?.filteredColumnVisibilityOptions(columnVisibilitySearch.value) ?? []);
 const dataGridRenderMode = computed(() => settingsStore.editorSettings.dataGridRenderMode);
 const dataGridSearchMode = computed(() => settingsStore.editorSettings.dataGridSearchMode);
+const resultRunDisplayMode = computed(() => settingsStore.editorSettings.resultRunDisplayMode);
 const columnWidthDensity = computed(() => settingsStore.editorSettings.columnWidthDensity);
 const tableFontSize = computed(() => settingsStore.editorSettings.tableFontSize);
 const redisKeyBrowserRef = ref<SearchableBrowserHandle>();
 const documentBrowserRef = ref<SearchableBrowserHandle>();
 
 const etcdKeyBrowserRef = ref<SearchableBrowserHandle>();
+const etcdDashboardRef = ref<{ refresh?: () => boolean }>();
 const zookeeperKeyBrowserRef = ref<SearchableBrowserHandle>();
 const objectBrowserRef = ref<SearchableBrowserHandle>();
 const activeTableMeta = computed(() => props.activeTab.tableMeta);
@@ -245,6 +250,10 @@ function setDataGridRenderMode(value: "canvas" | "dom") {
 
 function setDataGridSearchMode(value: DataGridSearchMode) {
   settingsStore.updateEditorSettings({ dataGridSearchMode: value });
+}
+
+function setResultRunDisplayMode(value: ResultRunDisplayMode) {
+  settingsStore.updateEditorSettings({ resultRunDisplayMode: value });
 }
 
 function setColumnWidthDensity(value: "compact" | "standard" | "comfortable") {
@@ -326,7 +335,15 @@ const activeQueryError = computed(() => {
 });
 const hasQueryOutput = computed(
   () =>
-    !!props.activeTab.result || props.activeTab.resultEvicted === true || !!props.activeTab.explainPlan || !!props.activeTab.explainError || !!props.activeTab.explainTableResult || !!props.activeTab.explainTableError || props.activeTab.isExecuting === true || props.activeTab.isExplaining === true,
+    !!props.activeTab.result ||
+    !!props.activeTab.resultRuns?.length ||
+    props.activeTab.resultEvicted === true ||
+    !!props.activeTab.explainPlan ||
+    !!props.activeTab.explainError ||
+    !!props.activeTab.explainTableResult ||
+    !!props.activeTab.explainTableError ||
+    props.activeTab.isExecuting === true ||
+    props.activeTab.isExplaining === true,
 );
 const visibleResultItems = computed(() => tabularResultItems(props.activeTab.results ?? (props.activeTab.result ? [props.activeTab.result] : undefined)));
 const tabularResults = computed(() => tabularResultItems(props.activeTab.results));
@@ -338,7 +355,6 @@ const allResultExportSheets = computed(() =>
   })),
 );
 const resultRuns = computed(() => resultRunItems(props.activeTab));
-const activeResultRunItem = computed(() => resultRuns.value.find((run) => run.active));
 const activeResultGridCacheKey = computed(() => resultGridCacheKey(props.activeTab));
 const activeResultSql = computed(() => resultSqlForGrid(props.activeTab));
 const activeResultExportSql = computed(() => queryResultExecutionSql(props.activeTab));
@@ -355,11 +371,16 @@ const activeElasticsearchJsonResponse = computed(() => elasticsearchJsonResponse
 const resultArchiveExporting = ref(false);
 const canExportResultArchive = computed(() => props.activeTab.mode === "query" && (!!props.activeTab.result || !!props.activeTab.results?.length || !!props.activeTab.resultRuns?.length));
 const resultAutoSave = computed(() => props.activeTab.resultAutoSave === true);
-const showResultRunSelector = computed(() => resultAutoSave.value && resultRuns.value.length > 0);
+const activeResultRunItem = computed(() => resultRuns.value.find((run) => run.active));
+const showResultRunTabs = computed(() => resultRuns.value.length > 0 && resultRunDisplayMode.value === "tabs");
+const showResultRunSelector = computed(() => resultRuns.value.length > 0 && resultRunDisplayMode.value === "list");
 watch(
-  () => visibleResultItems.value.map((item) => item.index).join(","),
+  () => `${resultRunDisplayMode.value}:${resultRuns.value.map((run) => run.id).join(",")}:${props.activeTab.activeResultRunId ?? ""}`,
   () => {
-    nextTick(updateResultTabsScrollbar);
+    nextTick(() => {
+      updateResultTabsScrollbar();
+      resultTabsScrollerRef.value?.querySelector<HTMLElement>('[data-active-result-run="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
   },
 );
 const summaryItems = computed(() => executionSummaryItems(props.activeTab));
@@ -716,6 +737,7 @@ function refreshData(): boolean {
   // Reuse ObjectBrowser's reload path so schema reloads and stale object-response guards stay intact.
   if (props.activeTab.mode === "objects") return objectBrowserRef.value?.refresh?.() ?? false;
   if (props.activeTab.mode === "etcd") return etcdKeyBrowserRef.value?.refresh?.() ?? false;
+  if (props.activeTab.mode === "etcd-dashboard") return etcdDashboardRef.value?.refresh?.() ?? false;
   if (props.activeTab.mode === "zookeeper") return zookeeperKeyBrowserRef.value?.refresh?.() ?? false;
   // Restored data tabs intentionally omit row data, so refresh must work before DataGrid mounts.
   if (canReloadUnavailableDataTab(props.activeTab)) {
@@ -760,15 +782,44 @@ async function exportResultArchive() {
 async function removeResultRun(runId: string) {
   const removedActiveRun = props.activeTab.activeResultRunId === runId;
   const removed = await queryStore.removeResultRun(props.activeTab.id, runId);
-  if (removed && removedActiveRun) emit("update:activeOutputView", "result");
+  if (!removed) return;
+  if (removedActiveRun) emit("update:activeOutputView", "result");
+  await nextTick();
+  const activeRunTab = resultTabsScrollerRef.value?.querySelector<HTMLElement>('[data-active-result-run="true"]');
+  activeRunTab?.focus({ preventScroll: true });
+  activeRunTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 async function selectResultRun(runId: string) {
   if (!(await queryStore.setActiveResultRun(props.activeTab.id, runId))) {
     toast(t("tabs.missingResultRun"), 4000);
-    return;
+    return false;
   }
   emit("update:activeOutputView", "result");
+  return true;
+}
+
+async function focusResultRunByIndex(index: number) {
+  const run = resultRuns.value[index];
+  if (!run) return;
+  if (!(await selectResultRun(run.id))) return;
+  await nextTick();
+  const runTabs = resultTabsScrollerRef.value?.querySelectorAll<HTMLElement>("[data-result-run-tab]");
+  const runTab = runTabs?.[index];
+  runTab?.focus({ preventScroll: true });
+  runTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function onResultRunTabKeydown(event: KeyboardEvent, currentIndex: number) {
+  const lastIndex = resultRuns.value.length - 1;
+  let targetIndex: number | undefined;
+  if (event.key === "ArrowLeft") targetIndex = currentIndex > 0 ? currentIndex - 1 : lastIndex;
+  if (event.key === "ArrowRight") targetIndex = currentIndex < lastIndex ? currentIndex + 1 : 0;
+  if (event.key === "Home") targetIndex = 0;
+  if (event.key === "End") targetIndex = lastIndex;
+  if (targetIndex === undefined || targetIndex < 0) return;
+  event.preventDefault();
+  void focusResultRunByIndex(targetIndex);
 }
 
 function toggleResultAutoSave() {
@@ -796,6 +847,10 @@ function requestQueryEditorExecute() {
   return queryEditorRef.value?.requestExecute();
 }
 
+function requestQueryEditorExecuteInNewResultTab() {
+  return queryEditorRef.value?.requestExecuteInNewResultTab();
+}
+
 function pasteClipboardAsSqlInCondition() {
   return queryEditorRef.value?.pasteClipboardAsSqlInCondition();
 }
@@ -814,7 +869,7 @@ async function executeRedisCommand(command: string): Promise<boolean> {
   return (await redisKeyBrowserRef.value?.executeCommand?.(command)) ?? false;
 }
 
-defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, handleModRTarget, requestQueryEditorExecute, pasteClipboardAsSqlInCondition, applyTableStructureChanges, insertRedisCommand, executeRedisCommand });
+defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, handleModRTarget, requestQueryEditorExecute, requestQueryEditorExecuteInNewResultTab, pasteClipboardAsSqlInCondition, applyTableStructureChanges, insertRedisCommand, executeRedisCommand });
 </script>
 
 <template>
@@ -862,6 +917,7 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
               @selection-state-change="emit('editorSelectionStateChange', activeTab.id, $event)"
               @format-error="emit('formatError')"
               @execute="emit('execute', $event)"
+              @execute-in-new-result-tab="emit('executeInNewResultTab', $event)"
               @save="emit('saveSql')"
               @click-table="onHandleClickTable"
               @view-table-data="onHandleViewTableData"
@@ -894,46 +950,81 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
               >
                 <Pin class="h-3.5 w-3.5" :class="{ 'fill-current': resultAutoSave }" />
               </Button>
-              <template v-if="showResultRunSelector">
+              <template v-if="resultRuns.length > 0 || visibleResultItems.length > 0">
                 <span class="mx-1 h-4 w-px shrink-0 bg-border" />
-                <DropdownMenu>
-                  <DropdownMenuTrigger as-child>
-                    <Button variant="ghost" size="sm" class="h-6 shrink-0 gap-1 px-2 text-xs">
-                      {{ activeResultRunItem ? t("tabs.runN", { n: activeResultRunItem.sequence }) : t("tabs.resultRuns") }}
-                      <ChevronDown class="h-3.5 w-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" class="w-48">
-                    <DropdownMenuItem v-for="run in resultRuns" :key="run.id" class="flex items-center gap-2 pr-1" @select="selectResultRun(run.id)">
-                      <Check v-if="run.active" class="h-3.5 w-3.5 shrink-0" />
-                      <span v-else class="h-3.5 w-3.5 shrink-0" />
-                      <span class="min-w-0 flex-1 truncate">{{ t("tabs.runN", { n: run.sequence }) }}</span>
-                      <button
-                        type="button"
-                        class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                        :title="t('tabs.removeRun', { n: run.sequence })"
-                        :aria-label="t('tabs.removeRun', { n: run.sequence })"
-                        @click.stop.prevent="removeResultRun(run.id)"
-                      >
-                        <X class="h-3 w-3" />
-                      </button>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </template>
-              <template v-if="visibleResultItems.length > 0">
-                <span class="mx-1 h-4 w-px shrink-0 bg-border" />
-                <div class="relative min-w-0 flex-1 self-stretch">
+                <div v-if="showResultRunTabs" data-result-run-tabs-region class="relative min-w-0 flex-1 self-stretch">
                   <div v-if="hasResultTabOverflow" class="result-tab-scrollbar" :class="{ 'result-tab-scrollbar--dragging': isResultTabsScrollbarDragging }" @pointerdown="startResultTabsScrollbarDrag">
                     <div class="result-tab-scrollbar__thumb" :style="resultTabsScrollbarThumbStyle" />
                   </div>
                   <div ref="resultTabsScrollerRef" class="result-tab-scroll flex h-full items-center gap-1 overflow-x-auto overflow-y-hidden px-1" :style="resultTabsScrollerStyle" @scroll="updateResultTabsScrollbar" @wheel="onResultTabsWheel">
-                    <LightTooltip v-for="item in visibleResultItems" :key="item.index" :text="item.label || item.title || t('tabs.resultN', { n: item.n })" :disabled="!item.labelTruncated && !(!item.label && item.title)" :delay="150" :close-delay="0" nowrap>
-                      <Button size="sm" :variant="activeOutputView === 'result' && (activeTab.activeResultIndex ?? 0) === item.index ? 'default' : 'ghost'" class="h-6 min-w-0 max-w-48 shrink-0 px-2 text-xs" :aria-label="item.label || t('tabs.resultN', { n: item.n })" @click="selectResultItem(item)">
-                        <span class="block min-w-0 max-w-44 whitespace-nowrap">{{ item.displayLabel || item.label || t("tabs.resultN", { n: item.n }) }}</span>
-                      </Button>
-                    </LightTooltip>
+                    <div role="tablist" :aria-label="t('tabs.resultRuns')" class="flex h-full shrink-0 items-center gap-1">
+                      <div
+                        v-for="(run, runIndex) in resultRuns"
+                        :key="run.id"
+                        role="presentation"
+                        class="group/result-run inline-flex h-7 shrink-0 items-center overflow-hidden rounded-md border transition-colors"
+                        :class="run.active ? 'border-border bg-background text-foreground shadow-sm' : 'border-transparent text-muted-foreground hover:border-border/70 hover:bg-background/70 hover:text-foreground'"
+                      >
+                        <button
+                          type="button"
+                          role="tab"
+                          data-result-run-tab
+                          :tabindex="run.active ? 0 : -1"
+                          :aria-selected="run.active"
+                          :data-active-result-run="run.active ? 'true' : undefined"
+                          class="h-full whitespace-nowrap pl-2.5 pr-1 text-xs font-medium outline-none focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+                          @click="selectResultRun(run.id)"
+                          @keydown="onResultRunTabKeydown($event, runIndex)"
+                        >
+                          {{ t("tabs.runN", { n: run.sequence }) }}
+                        </button>
+                        <button
+                          type="button"
+                          class="mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground/70 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                          :title="t('tabs.removeRun', { n: run.sequence })"
+                          :aria-label="t('tabs.removeRun', { n: run.sequence })"
+                          @click.stop.prevent="removeResultRun(run.id)"
+                        >
+                          <X class="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
+                </div>
+                <div v-else-if="showResultRunSelector" class="min-w-0 flex-1">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button variant="ghost" size="sm" class="h-6 max-w-48 gap-1 px-2 text-xs">
+                        <span class="min-w-0 truncate">{{ activeResultRunItem ? t("tabs.runN", { n: activeResultRunItem.sequence }) : t("tabs.resultRuns") }}</span>
+                        <ChevronDown class="h-3.5 w-3.5 shrink-0" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" class="w-48">
+                      <DropdownMenuItem v-for="run in resultRuns" :key="run.id" class="flex items-center gap-2 pr-1" @select="selectResultRun(run.id)">
+                        <Check v-if="run.active" class="h-3.5 w-3.5 shrink-0" />
+                        <span v-else class="h-3.5 w-3.5 shrink-0" />
+                        <span class="min-w-0 flex-1 truncate">{{ t("tabs.runN", { n: run.sequence }) }}</span>
+                        <button
+                          type="button"
+                          class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                          :title="t('tabs.removeRun', { n: run.sequence })"
+                          :aria-label="t('tabs.removeRun', { n: run.sequence })"
+                          @click.stop.prevent="removeResultRun(run.id)"
+                        >
+                          <X class="h-3 w-3" />
+                        </button>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <div v-else-if="resultRuns.length > 0" class="min-w-0 flex-1" />
+                <span v-if="resultRuns.length > 0 && visibleResultItems.length > 0" class="mx-1 h-4 w-px shrink-0 bg-border" />
+                <div v-if="visibleResultItems.length > 0" data-result-set-tabs-region role="group" :aria-label="t('tabs.resultSets')" class="flex h-full min-w-0 items-center gap-1" :class="resultRuns.length > 0 ? 'shrink-0' : 'flex-1 overflow-x-auto'">
+                  <LightTooltip v-for="item in visibleResultItems" :key="item.index" :text="item.label || item.title || t('tabs.resultN', { n: item.n })" :disabled="!item.labelTruncated && !(!item.label && item.title)" :delay="150" :close-delay="0" nowrap>
+                    <Button size="sm" :variant="activeOutputView === 'result' && (activeTab.activeResultIndex ?? 0) === item.index ? 'default' : 'ghost'" class="h-6 min-w-0 max-w-48 shrink-0 px-2 text-xs" :aria-label="item.label || t('tabs.resultN', { n: item.n })" @click="selectResultItem(item)">
+                      <span class="block min-w-0 max-w-44 whitespace-nowrap">{{ item.displayLabel || item.label || t("tabs.resultN", { n: item.n }) }}</span>
+                    </Button>
+                  </LightTooltip>
                 </div>
               </template>
               <div class="ml-auto flex shrink-0 items-center gap-1">
@@ -946,6 +1037,30 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
                   <PopoverContent align="end" class="w-max min-w-44 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-md border bg-popover p-0 text-popover-foreground shadow-xl" @click.stop @keydown.stop>
                     <div class="border-b bg-muted/40 px-3 py-2">
                       <div class="text-xs font-semibold">{{ t("grid.viewOptions") }}</div>
+                    </div>
+                    <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                      <div class="min-w-0 flex items-center gap-2 font-medium">
+                        <PanelsTopLeft class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span>{{ t("grid.resultRunDisplayMode") }}</span>
+                      </div>
+                      <div role="group" :aria-label="t('grid.resultRunDisplayMode')" class="grid w-32 grid-cols-2 rounded-md border bg-muted/40 p-0.5">
+                        <button
+                          type="button"
+                          class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                          :class="resultRunDisplayMode === 'list' ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                          @click="setResultRunDisplayMode('list')"
+                        >
+                          {{ t("grid.resultRunDisplayList") }}
+                        </button>
+                        <button
+                          type="button"
+                          class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                          :class="resultRunDisplayMode === 'tabs' ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                          @click="setResultRunDisplayMode('tabs')"
+                        >
+                          {{ t("grid.resultRunDisplayTabs") }}
+                        </button>
+                      </div>
                     </div>
                     <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
                       <div class="min-w-0 flex items-center gap-2 font-medium">
@@ -1627,6 +1742,13 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
       </div>
     </template>
 
+    <!-- etcd Dashboard: cluster observation -->
+    <template v-else-if="activeTab.mode === 'etcd-dashboard'">
+      <div class="flex-1 min-h-0">
+        <EtcdDashboard ref="etcdDashboardRef" :key="activeTab.id" :connection-id="activeTab.connectionId" />
+      </div>
+    </template>
+
     <!-- ZooKeeper mode: znode browser -->
     <template v-else-if="activeTab.mode === 'zookeeper'">
       <div class="flex-1 min-h-0">
@@ -1738,6 +1860,12 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
     <template v-else-if="activeTab.mode === 'postgres-dashboard'">
       <div class="min-h-0 flex-1">
         <PostgresDashboard :key="activeTab.id" :connection-id="activeTab.connectionId" />
+      </div>
+    </template>
+
+    <template v-else-if="activeTab.mode === 'nacos-dashboard'">
+      <div class="min-h-0 flex-1">
+        <NacosDashboard :key="activeTab.id" :connection-id="activeTab.connectionId" />
       </div>
     </template>
 

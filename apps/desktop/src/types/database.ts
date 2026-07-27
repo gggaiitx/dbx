@@ -116,6 +116,7 @@ export interface CompletionAssistantResponse {
 export interface ConnectionConfig {
   id: string;
   name: string;
+  note?: string;
   db_type: DatabaseType;
   driver_profile?: string;
   driver_label?: string;
@@ -721,6 +722,7 @@ export type TreeNodeType =
   | "mq-tenant"
   | "nacos-namespace"
   | "etcd-root"
+  | "etcd-dashboard"
   | "zookeeper-root"
   | "mongo-db"
   | "mongo-gridfs"
@@ -898,7 +900,7 @@ export interface QueryTab {
   explainClientSessionId?: string;
   /** Invalidates tab-scoped completion metadata after session context changes. */
   completionContextVersion?: number;
-  mode: "data" | "query" | "redis" | "redis-dashboard" | "mongo" | "mongo-gridfs" | "mongo-bucket" | "vector" | "etcd" | "zookeeper" | "mq" | "nacos" | "objects" | "structure" | "users" | "dameng-jobs" | "processlist" | "mysql-dashboard" | "postgres-dashboard";
+  mode: "data" | "query" | "redis" | "redis-dashboard" | "mongo" | "mongo-gridfs" | "mongo-bucket" | "vector" | "etcd" | "etcd-dashboard" | "zookeeper" | "mq" | "nacos" | "nacos-dashboard" | "objects" | "structure" | "users" | "dameng-jobs" | "processlist" | "mysql-dashboard" | "postgres-dashboard";
   mqTenant?: string;
   mqInitialTab?: "topics";
   nacosNamespace?: string;

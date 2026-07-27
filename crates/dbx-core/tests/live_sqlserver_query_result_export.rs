@@ -110,6 +110,7 @@ async fn live_sqlserver_xlsx_export_can_outlive_query_timeout_while_rows_keep_ar
         client_session_id: None,
         execution_id: Some(format!("live-sqlserver-xlsx-{suffix}")),
         date_time_format: None,
+        numeric_column_right_align: false,
     };
     let rows_exported = AtomicU64::new(0);
     let done_seen = AtomicBool::new(false);

@@ -100,6 +100,7 @@ fn write_zip_entry<W: Write + Seek>(zip: &mut zip::ZipWriter<W>, path: &str, con
 /// column widths (estimated from header names) and the header row are written
 /// immediately.  Callers then feed data rows via [`StreamingXlsxWriter::write_row`]
 /// and finalize with [`StreamingXlsxWriter::finish`].
+#[cfg(test)]
 pub(crate) fn start_streaming_xlsx_workbook<W: Write + Seek>(
     writer: W,
     sheet_name: Option<&str>,
@@ -855,7 +856,7 @@ mod tests {
         assert!(sheet.contains("<c r=\"B2\" s=\"3\"><v>45347.543229166666</v></c>"));
         assert!(sheet.contains("<c r=\"C2\" t=\"inlineStr\"><is><t>2024-02-25</t></is></c>"));
         assert!(sheet.contains("<c r=\"D2\" t=\"inlineStr\"><is><t>not-a-date</t></is></c>"));
-        assert!(sheet.contains("<c r=\"E2\"><v>2800.000000</v></c>"));
+        assert!(sheet.contains("<c r=\"E2\" s=\"5\"><v>2800.000000</v></c>"));
         assert!(sheet.contains("<c r=\"F2\" t=\"inlineStr\"><is><t>2024-02-25T13:02:15+08:00</t></is></c>"));
         assert!(styles.contains("numFmtId=\"164\" formatCode=\"yyyy-mm-dd\""));
         assert!(styles.contains("numFmtId=\"165\" formatCode=\"yyyy-mm-dd hh:mm:ss\""));
@@ -1146,13 +1147,13 @@ mod tests {
         })
         .expect("build workbook");
         let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
-        for index in 0..column_types.len() - 1 {
-            let col_letter = ('A' as u8 + index as u8) as char;
+        for (index, column_type) in column_types.iter().take(column_types.len() - 1).enumerate() {
+            let col_letter = (b'A' + index as u8) as char;
             let cell = format!(r#"<c r="{col_letter}2" s="4"><v>1</v></c>"#);
-            assert!(sheet.contains(&cell), "missing right-align style for {} (cell={cell})", column_types[index]);
+            assert!(sheet.contains(&cell), "missing right-align style for {column_type} (cell={cell})");
         }
         // Text column (last) must not receive the numeric right-align style.
-        let last_letter = ('A' as u8 + column_types.len() as u8 - 1) as char;
+        let last_letter = (b'A' + column_types.len() as u8 - 1) as char;
         assert!(!sheet.contains(&format!(r#"<c r="{last_letter}2" s="4""#)));
     }
 

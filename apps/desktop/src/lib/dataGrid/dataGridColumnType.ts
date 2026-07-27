@@ -69,6 +69,7 @@ export function resolveResultColumnType({ resultColumnType, resultColumnName, so
 }
 
 const EMPTY_STRING_MAP: ReadonlyMap<string, string> = new Map();
+const TRANSPARENT_NUMERIC_TYPE_WRAPPERS = new Set(["nullable", "lowcardinality"]);
 
 const NUMERIC_COLUMN_TYPE_BASES = new Set([
   "tinyint",
@@ -83,6 +84,7 @@ const NUMERIC_COLUMN_TYPE_BASES = new Set([
   "int2",
   "int4",
   "int8",
+  "int1",
   "int16",
   "int32",
   "int64",
@@ -117,6 +119,7 @@ const NUMERIC_COLUMN_TYPE_BASES = new Set([
   "dec",
   "fixed",
   "money",
+  "money4",
   "moneyn",
   "smallmoney",
   "smallmoneyn",
@@ -126,9 +129,12 @@ const NUMERIC_COLUMN_TYPE_BASES = new Set([
 
 export function isNumericColumnType(dataType: string | undefined): boolean {
   if (!dataType) return false;
-  const base = dataType
-    .trim()
-    .toLowerCase()
-    .split(/[\s([]/, 1)[0];
+  let normalized = dataType.trim().toLowerCase();
+  while (normalized.endsWith(")")) {
+    const openIndex = normalized.indexOf("(");
+    if (openIndex <= 0 || !TRANSPARENT_NUMERIC_TYPE_WRAPPERS.has(normalized.slice(0, openIndex).trim())) break;
+    normalized = normalized.slice(openIndex + 1, -1).trim();
+  }
+  const base = normalized.split(/[\s([]/, 1)[0];
   return NUMERIC_COLUMN_TYPE_BASES.has(base);
 }

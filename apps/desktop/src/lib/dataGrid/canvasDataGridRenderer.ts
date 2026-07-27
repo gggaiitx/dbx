@@ -25,6 +25,10 @@ export interface CanvasEditingCell {
   col: number;
 }
 
+export interface CanvasRightAlignedActionCell extends CanvasHoverCell {
+  reservedWidth: number;
+}
+
 /** 搜索匹配的数值 key：列头匹配 displayRow 为 -1。相比字符串拼接 key，
  * 每次按键构建 matchSet、每帧对可见单元格查询都零字符串分配。
  * ponytail: 列数上限 65536，网格列数远达不到 */
@@ -70,6 +74,7 @@ export interface DrawCanvasDataGridOptions {
   currentPage: number;
   frozenColumnCount?: number;
   columnAligns?: readonly ("left" | "right")[];
+  rightAlignedActionCell?: CanvasRightAlignedActionCell | null;
 }
 
 type NumericCanvasContext = CanvasRenderingContext2D & {
@@ -112,10 +117,10 @@ export function clearFitCanvasTextCache(): void {
   fitCanvasTextCache.clear();
 }
 
-export function fitCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+export function fitCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, align: "left" | "right" = "left"): string {
   if (maxWidth <= 0) return "";
   const font = ctx.font;
-  const cacheKey = `${font}|${text}|${maxWidth}`;
+  const cacheKey = `${font}|${text}|${maxWidth}|${align}`;
   const cached = fitCanvasTextCache.get(cacheKey);
   if (cached !== undefined) return cached;
   if (ctx.measureText(text).width <= maxWidth) {
@@ -129,13 +134,26 @@ export function fitCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWi
   let high = text.length;
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
-    if (ctx.measureText(text.slice(0, mid)).width + ellipsisWidth <= maxWidth) low = mid;
+    const candidate = align === "right" ? text.slice(text.length - mid) : text.slice(0, mid);
+    if (ctx.measureText(candidate).width + ellipsisWidth <= maxWidth) low = mid;
     else high = mid - 1;
   }
-  const result = text.slice(0, low) + ellipsis;
+  const result = align === "right" ? ellipsis + text.slice(text.length - low) : text.slice(0, low) + ellipsis;
   if (fitCanvasTextCache.size >= FIT_CANVAS_TEXT_CACHE_MAX) fitCanvasTextCache.clear();
   fitCanvasTextCache.set(cacheKey, result);
   return result;
+}
+
+export function canvasDataGridActionReservedWidth(canQuickDownload: boolean): number {
+  return (canQuickDownload ? 44 : 22) + 6;
+}
+
+export function resolveCanvasCellTextLayout(options: { drawX: number; colWidth: number; dpr: number; isRightAlign: boolean; reservedWidth?: number }): { textAnchorX: number; maxWidth: number } {
+  const reservedWidth = options.isRightAlign ? Math.max(0, options.reservedWidth ?? 0) : 0;
+  return {
+    textAnchorX: alignCanvasPixel(options.isRightAlign ? options.drawX + options.colWidth - 12 - reservedWidth : options.drawX + 12, options.dpr),
+    maxWidth: Math.max(0, options.colWidth - 24 - reservedWidth),
+  };
 }
 
 function canvasFont(style: { family: string; sizePx: number; style?: string; weight?: string | number; lineHeight?: string }): string {
@@ -253,6 +271,7 @@ export function drawCanvasDataGrid(options: DrawCanvasDataGridOptions) {
     currentPage,
     frozenColumnCount = 0,
     columnAligns,
+    rightAlignedActionCell,
   } = options;
   const dpr = Math.max(1, options.pixelRatio ?? window.devicePixelRatio ?? 1);
   const pixelWidth = Math.max(1, Math.ceil(width * dpr));
@@ -415,12 +434,12 @@ export function drawCanvasDataGrid(options: DrawCanvasDataGridOptions) {
       ctx.fillStyle = value === null ? theme.mutedForeground : theme.foreground;
       ctx.font = value === null ? italicFont : tabularFont;
       setCanvasNumericVariant(ctx, value === null ? "normal" : "tabular-nums");
-      const textAnchorX = alignCanvasPixel(isRightAlign ? drawX + colWidth - 12 : drawX + 12, dpr);
-      const cellMaxWidth = Math.max(0, colWidth - 24);
+      const reservedWidth = rightAlignedActionCell?.rowIndex === item.displayIndex && rightAlignedActionCell.visibleColIdx === visibleColIdx ? rightAlignedActionCell.reservedWidth : 0;
+      const { textAnchorX, maxWidth: cellMaxWidth } = resolveCanvasCellTextLayout({ drawX, colWidth, dpr, isRightAlign, reservedWidth });
       const isEditingThisCell = editingCell?.rowId === item.id && editingCell.col === actualColIdx;
       const rawDisplayText = item.isDraft && value === null ? (draftCellPlaceholder ?? "") : formatCell(value, actualColIdx);
       const displayText = isEditingThisCell ? "" : firstLineCellDisplayValue(rawDisplayText);
-      const text = isEditingThisCell ? displayText : fitCanvasText(ctx, displayText, cellMaxWidth);
+      const text = isEditingThisCell ? displayText : fitCanvasText(ctx, displayText, cellMaxWidth, isRightAlign ? "right" : "left");
       ctx.fillText(text, textAnchorX, textY);
       if (item.isDeleted && text) {
         const textWidth = ctx.measureText(text).width;

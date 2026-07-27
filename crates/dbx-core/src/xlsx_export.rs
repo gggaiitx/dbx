@@ -78,14 +78,7 @@ fn data_row_xml_with_date_time_format(
         .map(|(col_index, _)| {
             let col_type = column_types.get(col_index);
             let align_style = numeric_column_style(col_type, numeric_right_align);
-            typed_cell_xml(
-                row.get(col_index),
-                col_type,
-                row_number - 1,
-                col_index,
-                align_style,
-                date_time_format,
-            )
+            typed_cell_xml(row.get(col_index), col_type, row_number - 1, col_index, align_style, date_time_format)
         })
         .collect::<String>();
     format!("<row r=\"{row_number}\">{cells}</row>")
@@ -338,7 +331,16 @@ fn cell_xml(value: Option<&Value>, row_index: usize, col_index: usize, style: Op
 }
 
 fn is_numeric_column_type(column_type: Option<&String>) -> bool {
-    let normalized = column_type.map(|value| value.trim().to_ascii_lowercase()).unwrap_or_default();
+    let mut normalized = column_type.map(|value| value.trim().to_ascii_lowercase()).unwrap_or_default();
+    while normalized.ends_with(')') {
+        let Some(open_index) = normalized.find('(') else {
+            break;
+        };
+        if !matches!(normalized[..open_index].trim(), "nullable" | "lowcardinality") {
+            break;
+        }
+        normalized = normalized[open_index + 1..normalized.len() - 1].trim().to_string();
+    }
     let base = normalized.split(['(', ' ', '[']).next().unwrap_or_default();
     matches!(
         base,
@@ -354,6 +356,7 @@ fn is_numeric_column_type(column_type: Option<&String>) -> bool {
             | "int2"
             | "int4"
             | "int8"
+            | "int1"
             | "int16"
             | "int32"
             | "int64"
@@ -388,6 +391,7 @@ fn is_numeric_column_type(column_type: Option<&String>) -> bool {
             | "dec"
             | "fixed"
             | "money"
+            | "money4"
             | "moneyn"
             | "smallmoney"
             | "smallmoneyn"
@@ -492,14 +496,7 @@ fn worksheet_xml(data: &XlsxWorksheetData) -> String {
                 .map(|(col_index, _)| {
                     let col_type = data.column_types.get(col_index);
                     let align_style = numeric_column_style(col_type, data.numeric_column_right_align);
-                    typed_cell_xml(
-                        row.get(col_index),
-                        col_type,
-                        excel_row - 1,
-                        col_index,
-                        align_style,
-                        None,
-                    )
+                    typed_cell_xml(row.get(col_index), col_type, excel_row - 1, col_index, align_style, None)
                 })
                 .collect::<String>();
             format!("<row r=\"{excel_row}\">{cells}</row>")
@@ -745,7 +742,7 @@ pub fn build_xlsx_workbook_multi(sheets: &[XlsxWorksheetData]) -> Result<Vec<u8>
 #[cfg(test)]
 mod tests {
     use super::{
-        build_xlsx_workbook, build_xlsx_workbook_multi, start_streaming_xlsx_workbook,
+        build_xlsx_workbook, build_xlsx_workbook_multi, is_numeric_column_type, start_streaming_xlsx_workbook,
         start_streaming_xlsx_workbook_with_options, start_streaming_xlsx_workbook_with_trailing_sheets,
         XlsxWorksheetData,
     };
@@ -815,8 +812,8 @@ mod tests {
         .expect("build workbook");
 
         let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
-        assert!(sheet.contains("<c r=\"A2\"><v>1.00000</v></c>"));
-        assert!(sheet.contains("<c r=\"B2\"><v>2800.000000</v></c>"));
+        assert!(sheet.contains("<c r=\"A2\" s=\"5\"><v>1.00000</v></c>"));
+        assert!(sheet.contains("<c r=\"B2\" s=\"5\"><v>2800.000000</v></c>"));
         assert!(sheet.contains("<c r=\"C2\" t=\"inlineStr\"><is><t>00123</t></is></c>"));
     }
 
@@ -913,7 +910,7 @@ mod tests {
             ("G2", "987654.321"),
             ("H2", "2800.000000"),
         ] {
-            assert!(sheet.contains(&format!("<c r=\"{reference}\"><v>{value}</v></c>")), "sheet={sheet}");
+            assert!(sheet.contains(&format!("<c r=\"{reference}\" s=\"5\"><v>{value}</v></c>")), "sheet={sheet}");
         }
     }
 
@@ -1015,9 +1012,9 @@ mod tests {
 
         let bytes = fs::read(&path).expect("read workbook");
         let sheet = read_zip_entry(&bytes, "xl/worksheets/sheet1.xml");
-        assert!(sheet.contains("<c r=\"A2\"><v>42</v></c>"));
-        assert!(sheet.contains("<c r=\"B2\"><v>123.5</v></c>"));
-        assert!(sheet.contains("<c r=\"C2\"><v>2800.000000</v></c>"));
+        assert!(sheet.contains("<c r=\"A2\" s=\"5\"><v>42</v></c>"));
+        assert!(sheet.contains("<c r=\"B2\" s=\"5\"><v>123.5</v></c>"));
+        assert!(sheet.contains("<c r=\"C2\" s=\"5\"><v>2800.000000</v></c>"));
         let _ = fs::remove_file(&path);
     }
 
@@ -1157,5 +1154,20 @@ mod tests {
         // Text column (last) must not receive the numeric right-align style.
         let last_letter = ('A' as u8 + column_types.len() as u8 - 1) as char;
         assert!(!sheet.contains(&format!(r#"<c r="{last_letter}2" s="4""#)));
+    }
+
+    #[test]
+    fn numeric_type_classifier_matches_shared_backend_fixtures() {
+        let fixtures: Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/data-grid-numeric-column-types.json"))
+                .expect("parse numeric column type fixtures");
+        for fixture in fixtures["numeric"].as_array().expect("numeric fixtures") {
+            let column_type = fixture["type"].as_str().expect("numeric fixture type").to_string();
+            assert!(is_numeric_column_type(Some(&column_type)), "expected numeric backend type: {column_type}");
+        }
+        for fixture in fixtures["nonNumeric"].as_array().expect("non-numeric fixtures") {
+            let column_type = fixture["type"].as_str().expect("non-numeric fixture type").to_string();
+            assert!(!is_numeric_column_type(Some(&column_type)), "expected non-numeric backend type: {column_type}");
+        }
     }
 }

@@ -1,5 +1,18 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { isNumericColumnType } from "@/lib/dataGrid/dataGridColumnType";
+
+interface NumericColumnTypeFixture {
+  backend: string;
+  type: string;
+}
+
+interface NumericColumnTypeFixtures {
+  numeric: NumericColumnTypeFixture[];
+  nonNumeric: NumericColumnTypeFixture[];
+}
+
+const actualBackendTypeFixtures = JSON.parse(readFileSync(new URL("../../../../../../tests/fixtures/data-grid-numeric-column-types.json", import.meta.url), "utf8")) as NumericColumnTypeFixtures;
 
 describe("isNumericColumnType", () => {
   it("recognizes core numeric types", () => {
@@ -101,10 +114,19 @@ describe("isNumericColumnType", () => {
       hana: ["tinyint", "smallint", "integer", "bigint", "decimal", "real", "double"],
     };
 
-    for (const [database, types] of Object.entries(numericTypesByDatabase)) {
+    for (const types of Object.values(numericTypesByDatabase)) {
       for (const type of types) {
         expect(isNumericColumnType(type)).toBe(true);
       }
+    }
+  });
+
+  it("classifies actual backend type names from the shared fixture", () => {
+    for (const fixture of actualBackendTypeFixtures.numeric) {
+      expect(isNumericColumnType(fixture.type), `${fixture.backend}: ${fixture.type}`).toBe(true);
+    }
+    for (const fixture of actualBackendTypeFixtures.nonNumeric) {
+      expect(isNumericColumnType(fixture.type), `${fixture.backend}: ${fixture.type}`).toBe(false);
     }
   });
 

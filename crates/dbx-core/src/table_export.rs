@@ -1877,6 +1877,7 @@ mod tests {
             batch_size: Some(batch_size),
             row_limit,
             date_time_format: None,
+            numeric_column_right_align: false,
         };
 
         ExternalDriverExportFixture { state, request, calls, output, dir }

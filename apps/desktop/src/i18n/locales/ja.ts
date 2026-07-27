@@ -1254,6 +1254,9 @@ export default withEnglishFallback({
     filterBuilderNoMatchingColumns: "一致するフィールドがありません",
     cachedResultUnavailable: "キャッシュ結果が不足しているか互換性がありません。",
     reexecuteQuery: "クエリを再実行",
+    numericColumnAlign: "数値列の配置",
+    numericColumnAlignLeft: "左揃え",
+    numericColumnAlignRight: "右揃え",
   },
   exportProgress: {
     title: "テーブルデータをエクスポート中",

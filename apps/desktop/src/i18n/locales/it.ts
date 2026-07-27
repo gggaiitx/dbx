@@ -1253,6 +1253,9 @@ export default withEnglishFallback({
     filterBuilderNoMatchingColumns: "Nessun campo corrispondente",
     cachedResultUnavailable: "Risultato in cache mancante o non compatibile.",
     reexecuteQuery: "Esegui di nuovo la query",
+    numericColumnAlign: "Allineamento colonna numerica",
+    numericColumnAlignLeft: "Allineamento a sinistra",
+    numericColumnAlignRight: "Allineamento a destra",
   },
   exportProgress: {
     title: "Esportazione Dati Tabella",

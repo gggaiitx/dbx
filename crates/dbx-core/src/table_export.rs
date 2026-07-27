@@ -619,6 +619,7 @@ async fn try_export_native_table_stream(
                 Some(&request.table_name),
                 col_names,
                 &xlsx_column_types,
+                true,
             )?;
             let result = stream_native_table_rows(
                 state,
@@ -1204,6 +1205,7 @@ pub async fn export_table_data_core(
                 Some(&request.table_name),
                 &col_names,
                 &xlsx_column_types,
+                true,
             )?;
 
             loop {
@@ -1851,6 +1853,7 @@ mod tests {
                 vec![json!(2), json!("Bob"), json!(82000)],
                 vec![json!(3), Value::Null, json!(0)],
             ],
+            numeric_column_right_align: true,
         };
         let workbook = build_xlsx_workbook(&data).expect("XLSX build should succeed");
 

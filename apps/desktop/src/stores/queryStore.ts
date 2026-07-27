@@ -4497,6 +4497,7 @@ export const useQueryStore = defineStore("query", () => {
       keysetOptimizationEnabled: settings.queryExportKeysetOptimizationEnabled,
       clientSessionId,
       executionId: uuid(),
+      numericColumnRightAlign: settings.numericColumnRightAlign,
     };
   }
 

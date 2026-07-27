@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{Cursor, Seek, Write};
 
+pub(crate) fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct XlsxWorksheetData {
@@ -10,6 +14,12 @@ pub struct XlsxWorksheetData {
     #[serde(default)]
     pub column_types: Vec<String>,
     pub rows: Vec<Vec<Value>>,
+    /// Whether numeric columns should carry the right-align cellXfs style.
+    /// Mirrors the frontend `numericColumnRightAlign` editor setting so exports
+    /// stay consistent with the in-app grid. Defaults to `true` for backward
+    /// compatibility with older clients that do not send the field.
+    #[serde(default = "default_true")]
+    pub numeric_column_right_align: bool,
 }
 
 /// Streaming XLSX writer that incrementally writes rows to a ZIP-backed
@@ -19,6 +29,7 @@ pub struct StreamingXlsxWriter<W: Write + Seek> {
     zip: zip::ZipWriter<W>,
     columns: Vec<String>,
     column_types: Vec<String>,
+    numeric_right_align: bool,
     next_row_number: usize,
     trailing_sheets: Vec<XlsxWorksheetData>,
 }
@@ -54,13 +65,19 @@ pub(crate) fn header_row_xml(columns: &[String]) -> String {
 }
 
 /// Build a single `<row>` XML fragment for a data row.
-pub(crate) fn data_row_xml(row_number: usize, columns: &[String], column_types: &[String], row: &[Value]) -> String {
+pub(crate) fn data_row_xml(
+    row_number: usize,
+    columns: &[String],
+    column_types: &[String],
+    numeric_right_align: bool,
+    row: &[Value],
+) -> String {
     let cells = columns
         .iter()
         .enumerate()
         .map(|(col_index, _)| {
             let column_type = column_types.get(col_index);
-            let style = numeric_column_style(column_type);
+            let style = numeric_column_style(column_type, numeric_right_align);
             typed_cell_xml(row.get(col_index), column_type, row_number - 1, col_index, style)
         })
         .collect::<String>();
@@ -88,8 +105,16 @@ pub(crate) fn start_streaming_xlsx_workbook<W: Write + Seek>(
     sheet_name: Option<&str>,
     columns: &[String],
     column_types: &[String],
+    numeric_right_align: bool,
 ) -> Result<StreamingXlsxWriter<W>, String> {
-    start_streaming_xlsx_workbook_with_trailing_sheets(writer, sheet_name, columns, column_types, &[])
+    start_streaming_xlsx_workbook_with_trailing_sheets(
+        writer,
+        sheet_name,
+        columns,
+        column_types,
+        numeric_right_align,
+        &[],
+    )
 }
 
 pub(crate) fn start_streaming_xlsx_workbook_with_trailing_sheets<W: Write + Seek>(
@@ -97,6 +122,7 @@ pub(crate) fn start_streaming_xlsx_workbook_with_trailing_sheets<W: Write + Seek
     sheet_name: Option<&str>,
     columns: &[String],
     column_types: &[String],
+    numeric_right_align: bool,
     trailing_sheets: &[XlsxWorksheetData],
 ) -> Result<StreamingXlsxWriter<W>, String> {
     let primary_sheet = XlsxWorksheetData {
@@ -104,6 +130,7 @@ pub(crate) fn start_streaming_xlsx_workbook_with_trailing_sheets<W: Write + Seek
         columns: columns.to_vec(),
         column_types: column_types.to_vec(),
         rows: Vec::new(),
+        numeric_column_right_align: numeric_right_align,
     };
     let all_sheets = std::iter::once(primary_sheet).chain(trailing_sheets.iter().cloned()).collect::<Vec<_>>();
     let sheet_names = normalize_unique_sheet_names(&all_sheets);
@@ -142,6 +169,7 @@ pub(crate) fn start_streaming_xlsx_workbook_with_trailing_sheets<W: Write + Seek
         zip,
         columns: columns.to_vec(),
         column_types: column_types.to_vec(),
+        numeric_right_align,
         next_row_number: 2,
         trailing_sheets: trailing_sheets.to_vec(),
     })
@@ -151,7 +179,10 @@ impl<W: Write + Seek> StreamingXlsxWriter<W> {
     /// Append a single data row to the worksheet.
     pub fn write_row(&mut self, row: &[Value]) -> Result<(), String> {
         self.zip
-            .write_all(data_row_xml(self.next_row_number, &self.columns, &self.column_types, row).as_bytes())
+            .write_all(
+                data_row_xml(self.next_row_number, &self.columns, &self.column_types, self.numeric_right_align, row)
+                    .as_bytes(),
+            )
             .map_err(|err| err.to_string())?;
         self.next_row_number += 1;
         Ok(())
@@ -293,8 +324,9 @@ const NUMERIC_RIGHT_ALIGN_STYLE_INDEX: usize = 2;
 
 /// Returns the right-align cellXfs index for numeric columns, so exported
 /// numbers align with the in-app grid. Non-numeric columns get no style.
-fn numeric_column_style(column_type: Option<&String>) -> Option<usize> {
-    if is_numeric_column_type(column_type) {
+/// Returns `None` for all columns when the user disabled right-align.
+fn numeric_column_style(column_type: Option<&String>, enabled: bool) -> Option<usize> {
+    if enabled && is_numeric_column_type(column_type) {
         Some(NUMERIC_RIGHT_ALIGN_STYLE_INDEX)
     } else {
         None
@@ -342,6 +374,8 @@ fn is_numeric_column_type(column_type: Option<&String>) -> bool {
             | "fixed"
             | "money"
             | "smallmoney"
+            | "binary_float"
+            | "binary_double"
     )
 }
 
@@ -416,7 +450,7 @@ fn worksheet_xml(data: &XlsxWorksheetData) -> String {
                 .enumerate()
                 .map(|(col_index, _)| {
                     let column_type = data.column_types.get(col_index);
-                    let style = numeric_column_style(column_type);
+                    let style = numeric_column_style(column_type, data.numeric_column_right_align);
                     typed_cell_xml(row.get(col_index), column_type, excel_row - 1, col_index, style)
                 })
                 .collect::<String>();
@@ -623,6 +657,7 @@ mod tests {
             columns: vec!["id".to_string(), "name".to_string(), "active".to_string()],
             column_types: vec![],
             rows: vec![vec![json!(1), json!("Ada & Bob"), json!(true)], vec![json!(2), json!(null), json!(false)]],
+            numeric_column_right_align: true,
         })
         .expect("build workbook");
 
@@ -647,6 +682,7 @@ mod tests {
             columns: vec!["quantity".to_string(), "amount".to_string(), "code".to_string()],
             column_types: vec!["decimal(10,5)".to_string(), "numeric".to_string(), "varchar".to_string()],
             rows: vec![vec![json!("1.00000"), json!("2800.000000"), json!("00123")]],
+            numeric_column_right_align: true,
         })
         .expect("build workbook");
 
@@ -690,6 +726,7 @@ mod tests {
                 json!("987654.321"),
                 json!("2800.000000"),
             ]],
+            numeric_column_right_align: true,
         })
         .expect("build workbook");
 
@@ -718,6 +755,7 @@ mod tests {
             columns: vec!["flag".to_string(), "seq".to_string(), "amt".to_string(), "price".to_string()],
             column_types: vec!["bit".to_string(), "serial".to_string(), "dec(10,2)".to_string(), "fixed".to_string()],
             rows: vec![vec![json!(1), json!(100), json!("9.99"), json!("3.14")]],
+            numeric_column_right_align: true,
         })
         .expect("build workbook");
 
@@ -731,12 +769,52 @@ mod tests {
     }
 
     #[test]
+    fn binary_float_and_binary_double_are_numeric() {
+        // Oracle/Dameng IEEE float types must be treated as numeric so exports
+        // match the grid color logic (which already classifies them as numeric).
+        let workbook = build_xlsx_workbook(&XlsxWorksheetData {
+            sheet_name: Some("Oracle".to_string()),
+            columns: vec!["score".to_string(), "measurement".to_string()],
+            column_types: vec!["binary_float".to_string(), "binary_double".to_string()],
+            rows: vec![vec![json!(1.5), json!("3.14159")]],
+            numeric_column_right_align: true,
+        })
+        .expect("build workbook");
+
+        let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
+        assert!(sheet.contains("<c r=\"A2\" s=\"2\"><v>1.5</v></c>"), "sheet={sheet}");
+        assert!(sheet.contains("<c r=\"B2\" s=\"2\"><v>3.14159</v></c>"), "sheet={sheet}");
+    }
+
+    #[test]
+    fn numeric_right_align_disabled_strips_style() {
+        // When the user disables numeric right-align, numeric columns must NOT
+        // carry the right-align cellXfs style — the grid and Excel stay consistent.
+        let workbook = build_xlsx_workbook(&XlsxWorksheetData {
+            sheet_name: Some("Disabled".to_string()),
+            columns: vec!["amount".to_string(), "label".to_string()],
+            column_types: vec!["decimal(10,2)".to_string(), "varchar(50)".to_string()],
+            rows: vec![vec![json!(1.5), json!("row")]],
+            numeric_column_right_align: false,
+        })
+        .expect("build workbook");
+
+        let sheet = read_zip_entry(&workbook, "xl/worksheets/sheet1.xml");
+        // Numeric column gets no style attribute when right-align is disabled.
+        assert!(sheet.contains("<c r=\"A2\"><v>1.5</v></c>"), "sheet={sheet}");
+        assert!(!sheet.contains("s=\"2\""), "sheet should not have right-align style when disabled: {sheet}");
+        // Text column is unaffected.
+        assert!(sheet.contains("<c r=\"B2\" t=\"inlineStr\"><is><t>row</t></is></c>"), "sheet={sheet}");
+    }
+
+    #[test]
     fn preserves_high_precision_numeric_strings_as_text() {
         let workbook = build_xlsx_workbook(&XlsxWorksheetData {
             sheet_name: Some("Precision".to_string()),
             columns: vec!["large_id".to_string(), "precise_amount".to_string()],
             column_types: vec!["bigint".to_string(), "decimal(30,10)".to_string()],
             rows: vec![vec![json!("9223372036854775807"), json!("123456789012345.6789000000")]],
+            numeric_column_right_align: true,
         })
         .expect("build workbook");
 
@@ -752,6 +830,7 @@ mod tests {
             columns: vec!["value".to_string()],
             column_types: vec![],
             rows: vec![vec![json!("ok")]],
+            numeric_column_right_align: true,
         })
         .expect("build workbook");
         let workbook_xml = read_zip_entry(&workbook, "xl/workbook.xml");
@@ -767,12 +846,14 @@ mod tests {
                 columns: vec!["id".to_string()],
                 column_types: vec![],
                 rows: vec![vec![json!(1)]],
+                numeric_column_right_align: true,
             },
             XlsxWorksheetData {
                 sheet_name: Some("Result 2".to_string()),
                 columns: vec!["name".to_string()],
                 column_types: vec![],
                 rows: vec![vec![json!("Ada")]],
+                numeric_column_right_align: true,
             },
         ])
         .expect("build multi-sheet workbook");
@@ -793,9 +874,14 @@ mod tests {
         let path = std::env::temp_dir().join(format!("dbx-stream-test-{}.xlsx", uuid::Uuid::new_v4()));
         {
             let file = fs::File::create(&path).expect("create temp xlsx");
-            let mut writer =
-                start_streaming_xlsx_workbook(file, Some("Streamed"), &["id".to_string(), "name".to_string()], &[])
-                    .expect("start workbook");
+            let mut writer = start_streaming_xlsx_workbook(
+                file,
+                Some("Streamed"),
+                &["id".to_string(), "name".to_string()],
+                &[],
+                true,
+            )
+            .expect("start workbook");
             writer.write_row(&[json!(1), json!("Ada")]).expect("write row");
             writer.write_row(&[json!(2), json!("Bob")]).expect("write row");
             drop(writer.finish().expect("finish workbook"));
@@ -816,7 +902,7 @@ mod tests {
             let file = fs::File::create(&path).expect("create temp xlsx");
             let columns = ["nullable_int".to_string(), "float_value".to_string(), "decimal_value".to_string()];
             let column_types = ["int(11)".to_string(), "float".to_string(), "decimal(18,6)".to_string()];
-            let mut writer = start_streaming_xlsx_workbook(file, Some("MySQL Stream"), &columns, &column_types)
+            let mut writer = start_streaming_xlsx_workbook(file, Some("MySQL Stream"), &columns, &column_types, true)
                 .expect("start workbook");
             writer.write_row(&[json!("42"), json!("123.5"), json!("2800.000000")]).expect("write row");
             drop(writer.finish().expect("finish workbook"));
@@ -840,12 +926,14 @@ mod tests {
                 columns: vec!["SQL".to_string()],
                 column_types: vec![],
                 rows: vec![vec![json!("SELECT id, name FROM users")]],
+                numeric_column_right_align: true,
             };
             let mut writer = start_streaming_xlsx_workbook_with_trailing_sheets(
                 file,
                 Some("Result"),
                 &["id".to_string(), "name".to_string()],
                 &[],
+                true,
                 &[sql_sheet],
             )
             .expect("start workbook");

@@ -1853,13 +1853,14 @@ function downloadTextFile(filePath: string, fallbackFileName: string, content: s
   URL.revokeObjectURL(url);
 }
 
-export async function exportQueryResultXlsx(filePath: string, sheetName: string | undefined, columns: string[], columnTypes: string[], rows: readonly (readonly XlsxCellValue[])[]): Promise<void> {
+export async function exportQueryResultXlsx(filePath: string, sheetName: string | undefined, columns: string[], columnTypes: string[], rows: readonly (readonly XlsxCellValue[])[], numericColumnRightAlign: boolean): Promise<void> {
   const { buildXlsxWorkbook } = await import("@/lib/export/xlsxExport");
   const workbook = buildXlsxWorkbook({
     sheetName: sheetName || "Export",
     columns,
     columnTypes,
     rows,
+    numericColumnRightAlign,
   });
   const fileName = filePath.split(/[\\/]/).pop() || "export.xlsx";
   const blob = new Blob([new Uint8Array(workbook)], {
@@ -1873,7 +1874,7 @@ export async function exportQueryResultXlsx(filePath: string, sheetName: string 
   URL.revokeObjectURL(url);
 }
 
-export async function exportQueryResultsXlsx(filePath: string, worksheets: readonly { sheetName?: string; columns: readonly string[]; columnTypes?: readonly string[]; rows: readonly (readonly XlsxCellValue[])[] }[]): Promise<void> {
+export async function exportQueryResultsXlsx(filePath: string, worksheets: readonly { sheetName?: string; columns: readonly string[]; columnTypes?: readonly string[]; rows: readonly (readonly XlsxCellValue[])[]; numericColumnRightAlign?: boolean }[]): Promise<void> {
   const { buildXlsxWorkbookMulti } = await import("@/lib/export/xlsxExport");
   const workbook = buildXlsxWorkbookMulti(worksheets);
   const fileName = filePath.split(/[\\/]/).pop() || "export.xlsx";

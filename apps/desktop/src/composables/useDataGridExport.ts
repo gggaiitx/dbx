@@ -282,9 +282,10 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
   }
 
   async function writeXlsxResult(outputPath: string, result: { columns: string[]; columnTypes: string[]; rows: CellValue[][] }, includeSqlSheet: boolean) {
+    const numericColumnRightAlign = useSettingsStore().editorSettings.numericColumnRightAlign;
     const sqlWorksheet = includeSqlSheet ? buildXlsxSqlWorksheet([{ sql: currentExportSql() || "" }]) : undefined;
     if (!sqlWorksheet) {
-      await api.exportQueryResultXlsx(outputPath, currentXlsxSheetName(), result.columns, result.columnTypes, result.rows);
+      await api.exportQueryResultXlsx(outputPath, currentXlsxSheetName(), result.columns, result.columnTypes, result.rows, numericColumnRightAlign);
       return;
     }
     await api.exportQueryResultsXlsx(outputPath, [
@@ -293,6 +294,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
         columns: result.columns,
         columnTypes: result.columnTypes,
         rows: result.rows,
+        numericColumnRightAlign,
       },
       sqlWorksheet,
     ]);

@@ -89,6 +89,54 @@ test("xlsx numeric detection matches the data grid (bit is not numeric, serial/d
   assert.match(text, /<c r="D2" s="2"><v>3\.14<\/v><\/c>/);
 });
 
+test("Oracle binary_float/binary_double are numeric and get right-align style", () => {
+  // The grid color logic already treats these as numeric (cyan). The alignment
+  // classifier and XLSX exporter must agree so Oracle/Dameng FLOAT columns
+  // right-align consistently across the grid and exports.
+  const workbook = buildXlsxWorkbook({
+    sheetName: "Oracle",
+    columns: ["score", "measurement"],
+    columnTypes: ["binary_float", "binary_double"],
+    rows: [[1.5, 3.14159]],
+  });
+  const text = new TextDecoder().decode(workbook);
+
+  assert.match(text, /<c r="A2" s="2"><v>1\.5<\/v><\/c>/);
+  assert.match(text, /<c r="B2" s="2"><v>3\.14159<\/v><\/c>/);
+});
+
+test("numericColumnRightAlign: false strips right-align style from xlsx exports", () => {
+  // When the user disables numeric right-align, exports must NOT carry the
+  // right-align cellXfs style — the grid and Excel stay consistent.
+  const workbook = buildXlsxWorkbook({
+    sheetName: "Disabled",
+    columns: ["amount", "label"],
+    columnTypes: ["decimal(10,2)", "varchar(50)"],
+    rows: [[1.5, "row"]],
+    numericColumnRightAlign: false,
+  });
+  const text = new TextDecoder().decode(workbook);
+
+  // Numeric column gets no style attribute when right-align is disabled.
+  assert.match(text, /<c r="A2"><v>1\.5<\/v><\/c>/);
+  assert.doesNotMatch(text, /<c r="A2"[^>]* s="2"/);
+  // Text column is unaffected.
+  assert.match(text, /<c r="B2" t="inlineStr"><is><t>row<\/t><\/is><\/c>/);
+});
+
+test("numericColumnRightAlign defaults to true when omitted", () => {
+  // Backward compatibility: older callers that don't send the field get the
+  // default right-align behavior.
+  const workbook = buildXlsxWorkbook({
+    sheetName: "Default",
+    columns: ["amount"],
+    columnTypes: ["decimal(10,2)"],
+    rows: [[1.5]],
+  });
+  const text = new TextDecoder().decode(workbook);
+  assert.match(text, /<c r="A2" s="2"><v>1\.5<\/v><\/c>/);
+});
+
 test("builds a result workbook with a separate SQL worksheet", () => {
   const sqlWorksheet = buildXlsxSqlWorksheet([{ sql: "SELECT id, name FROM users WHERE active = true" }]);
   assert.ok(sqlWorksheet);

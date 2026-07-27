@@ -7,6 +7,7 @@ export interface XlsxWorksheetData {
   columns: readonly string[];
   columnTypes?: readonly string[];
   rows: readonly (readonly XlsxCellValue[])[];
+  numericColumnRightAlign?: boolean;
 }
 
 type ZipEntry = {
@@ -145,7 +146,7 @@ function worksheetXml(data: XlsxWorksheetData): string {
   const bodyXml = rows
     .map((row, rowIndex) => {
       const excelRowIndex = rowIndex + 2;
-      const cells = columns.map((_, colIndex) => cellXml(row[colIndex], excelRowIndex - 1, colIndex, numericColumnStyle(data.columnTypes?.[colIndex]), data.columnTypes?.[colIndex])).join("");
+      const cells = columns.map((_, colIndex) => cellXml(row[colIndex], excelRowIndex - 1, colIndex, numericColumnStyle(data.columnTypes?.[colIndex], data.numericColumnRightAlign !== false), data.columnTypes?.[colIndex])).join("");
       return `<row r="${excelRowIndex}">${cells}</row>`;
     })
     .join("");
@@ -212,8 +213,8 @@ function stylesXml(): string {
 /** cellXfs index for the numeric right-aligned style (index 2). */
 const NUMERIC_RIGHT_ALIGN_STYLE_INDEX = 2;
 
-function numericColumnStyle(columnType?: string): number | undefined {
-  return isNumericColumnType(columnType) ? NUMERIC_RIGHT_ALIGN_STYLE_INDEX : undefined;
+function numericColumnStyle(columnType?: string, enabled = true): number | undefined {
+  return enabled && isNumericColumnType(columnType) ? NUMERIC_RIGHT_ALIGN_STYLE_INDEX : undefined;
 }
 
 function uint16(value: number): Uint8Array {

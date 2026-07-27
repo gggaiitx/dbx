@@ -1735,9 +1735,15 @@ const tableColumnTypesByName = computed(() => {
 });
 const visibleColumnTypes = computed(() =>
   visibleColumnIndexes.value.map((index) => {
+    // Prefer the actual ResultSet type so expressions like
+    // `CAST(amount AS TEXT) AS amount` align as text (the real result type),
+    // not as the source column's numeric type. Fall back to table metadata
+    // only when the driver supplies no result type for this column.
+    const resultType = props.result.column_types?.[index];
+    if (resultType && resultType.trim()) return resultType;
     const resultColumn = props.result.columns[index]?.toLocaleLowerCase();
     const sourceColumn = props.sourceColumns?.[index]?.toLocaleLowerCase();
-    return (sourceColumn ? tableColumnTypesByName.value.get(sourceColumn) : undefined) || (resultColumn ? tableColumnTypesByName.value.get(resultColumn) : undefined) || props.result.column_types?.[index];
+    return (sourceColumn ? tableColumnTypesByName.value.get(sourceColumn) : undefined) || (resultColumn ? tableColumnTypesByName.value.get(resultColumn) : undefined);
   }),
 );
 const visibleColumnCount = computed(() => visibleColumnIndexes.value.length);

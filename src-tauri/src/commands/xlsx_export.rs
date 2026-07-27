@@ -1,4 +1,4 @@
-use dbx_core::xlsx_export::{build_xlsx_workbook, build_xlsx_workbook_multi, XlsxWorksheetData};
+use dbx_core::xlsx_export::{build_xlsx_workbook, build_xlsx_workbook_multi, default_true, XlsxWorksheetData};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -11,6 +11,8 @@ pub struct QueryResultXlsxExportRequest {
     #[serde(default)]
     pub column_types: Vec<String>,
     pub rows: Vec<Vec<Value>>,
+    #[serde(default = "default_true")]
+    pub numeric_column_right_align: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,6 +30,7 @@ pub async fn export_query_result_xlsx(request: QueryResultXlsxExportRequest) -> 
             columns: request.columns,
             column_types: request.column_types,
             rows: request.rows,
+            numeric_column_right_align: request.numeric_column_right_align,
         })?;
         std::fs::write(&request.file_path, workbook).map_err(|err| err.to_string())
     })

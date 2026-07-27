@@ -32,6 +32,16 @@ describe("isNumericColumnType", () => {
     expect(isNumericColumnType("fixed")).toBe(true);
   });
 
+  it("returns true for Oracle/Dameng binary_float/binary_double", () => {
+    // The grid color logic (typeColorClass) already treats these as numeric
+    // (cyan). The alignment classifier must agree so FLOAT columns right-align
+    // consistently and XLSX exports match the grid.
+    expect(isNumericColumnType("binary_float")).toBe(true);
+    expect(isNumericColumnType("binary_double")).toBe(true);
+    expect(isNumericColumnType("BINARY_FLOAT")).toBe(true);
+    expect(isNumericColumnType("BINARY_DOUBLE(126)")).toBe(true);
+  });
+
   it("returns false for non-numeric types", () => {
     expect(isNumericColumnType("VARCHAR(255)")).toBe(false);
     expect(isNumericColumnType("text")).toBe(false);

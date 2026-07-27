@@ -66,6 +66,10 @@ const NUMERIC_COLUMN_TYPE_BASES = new Set([
   "fixed",
   "money",
   "smallmoney",
+  // Oracle / Dameng IEEE floating point — already treated as numeric by the
+  // grid color logic (typeColorClass), keep the alignment classifier in sync.
+  "binary_float",
+  "binary_double",
 ]);
 
 /**

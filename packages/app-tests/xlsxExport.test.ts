@@ -41,6 +41,7 @@ test("writes MySQL 5.7 numeric strings as numeric cells", () => {
     columns: ["nullable_int", "float_value", "double_value", "decimal_value", "bigint_high_precision"],
     columnTypes: ["int(11)", "float", "double", "decimal(18,6)", "bigint(20)"],
     rows: [["42", "123.5", "987654.321", "2800.000000", "9007199254740992"]],
+    numericColumnRightAlign: false,
   });
   const text = new TextDecoder().decode(workbook);
 
@@ -80,4 +81,33 @@ test("maps multiple result statements and splits SQL at the Excel cell limit", (
   assert.equal(longSqlRows[0][1], bmpPrefix);
   assert.equal(longSqlRows[1][1], "😀tail");
   assert.equal(longSqlRows.map((row) => row[1]).join(""), longSql);
+});
+
+test("numericColumnRightAlign: true applies right-align style to numeric columns", () => {
+  const workbook = buildXlsxWorkbook({
+    sheetName: "Aligned",
+    columns: ["amount", "label"],
+    columnTypes: ["decimal(10,2)", "varchar(50)"],
+    rows: [[1.5, "row"]],
+    numericColumnRightAlign: true,
+  });
+  const text = new TextDecoder().decode(workbook);
+  // Numeric column A should have right-align style (s="2")
+  assert.match(text, /<c r="A2" s="2"><v>1\.5<\/v><\/c>/);
+  // Text column B should NOT have right-align style
+  assert.doesNotMatch(text, /<c r="B2"[^>]* s="2"/);
+});
+
+test("numericColumnRightAlign: false strips right-align style from xlsx exports", () => {
+  const workbook = buildXlsxWorkbook({
+    sheetName: "Disabled",
+    columns: ["amount", "label"],
+    columnTypes: ["decimal(10,2)", "varchar(50)"],
+    rows: [[1.5, "row"]],
+    numericColumnRightAlign: false,
+  });
+  const text = new TextDecoder().decode(workbook);
+  // No right-align style on numeric column
+  assert.match(text, /<c r="A2"><v>1\.5<\/v><\/c>/);
+  assert.doesNotMatch(text, /<c r="A2"[^>]* s="2"/);
 });

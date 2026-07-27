@@ -2715,7 +2715,7 @@ export async function exportTableDataCsv(options: TableCsvExportOptions): Promis
   return invoke("export_table_data_csv", { request: options });
 }
 
-export async function exportQueryResultXlsx(filePath: string, sheetName: string | undefined, columns: string[], columnTypes: string[], rows: readonly (readonly XlsxCellValue[])[]): Promise<void> {
+export async function exportQueryResultXlsx(filePath: string, sheetName: string | undefined, columns: string[], columnTypes: string[], rows: readonly (readonly XlsxCellValue[])[], numericColumnRightAlign?: boolean): Promise<void> {
   return invoke("export_query_result_xlsx", {
     request: {
       filePath,
@@ -2723,11 +2723,12 @@ export async function exportQueryResultXlsx(filePath: string, sheetName: string 
       columns,
       columnTypes,
       rows,
+      numericColumnRightAlign,
     },
   });
 }
 
-export async function exportQueryResultsXlsx(filePath: string, worksheets: readonly { sheetName?: string; columns: readonly string[]; columnTypes?: readonly string[]; rows: readonly (readonly XlsxCellValue[])[] }[]): Promise<void> {
+export async function exportQueryResultsXlsx(filePath: string, worksheets: readonly { sheetName?: string; columns: readonly string[]; columnTypes?: readonly string[]; rows: readonly (readonly XlsxCellValue[])[]; numericColumnRightAlign?: boolean }[]): Promise<void> {
   return invoke("export_query_results_xlsx", {
     request: {
       filePath,

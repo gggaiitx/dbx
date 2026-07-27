@@ -76,7 +76,7 @@ import { buildTableSelectSql, quoteTableDataIdentifier } from "@/lib/table/table
 import { tableOpenPageLimit } from "@/lib/table/tableOpenPageLimit";
 import { uuid } from "@/lib/common/utils";
 import { generateCellValues, type CellValueGenerationKind } from "@/lib/dataGrid/cellValueGeneration";
-import { compactHeaderColumnType, resolveHeaderColumnType } from "@/lib/dataGrid/dataGridColumnType";
+import { compactHeaderColumnType, isNumericColumnType, resolveHeaderColumnType } from "@/lib/dataGrid/dataGridColumnType";
 import {
   canDeleteExistingTdengineRows,
   canEditExistingTableRows,
@@ -1745,12 +1745,20 @@ const tableColumnTypesByName = computed(() => {
 });
 const visibleColumnTypes = computed(() =>
   visibleColumnIndexes.value.map((index) => {
+    const resultType = props.result.column_types?.[index];
+    if (resultType && resultType.trim()) return resultType;
     const resultColumn = props.result.columns[index]?.toLocaleLowerCase();
     const sourceColumn = props.sourceColumns?.[index]?.toLocaleLowerCase();
-    return (sourceColumn ? tableColumnTypesByName.value.get(sourceColumn) : undefined) || (resultColumn ? tableColumnTypesByName.value.get(resultColumn) : undefined) || props.result.column_types?.[index];
+    return (sourceColumn ? tableColumnTypesByName.value.get(sourceColumn) : undefined) || (resultColumn ? tableColumnTypesByName.value.get(resultColumn) : undefined);
   }),
 );
 const visibleColumnCount = computed(() => visibleColumnIndexes.value.length);
+
+const numericColumnRightAlign = computed(() => settingsStore.editorSettings.numericColumnRightAlign && !showTranspose.value);
+const columnAligns = computed<("left" | "right")[]>(() => {
+  if (!numericColumnRightAlign.value) return [];
+  return visibleColumnTypes.value.map((type) => (isNumericColumnType(type) ? "right" : "left"));
+});
 
 /** Preview actions from the result preview registry for the current result. */
 const previewActions = computed(() => {
@@ -4952,6 +4960,7 @@ function drawCanvasGrid() {
     pageSize: pageSize.value,
     currentPage: currentPage.value,
     frozenColumnCount: frozenColumnCount.value,
+    columnAligns: columnAligns.value,
   });
 }
 
@@ -4965,6 +4974,7 @@ watch(
   { immediate: true },
 );
 watch(showDataGridTopbar, () => nextTick(observeDataGridTopbarWidth), { immediate: true });
+watch(columnAligns, () => scheduleCanvasDraw());
 watch(
   [
     displayRowRefs,
@@ -8582,6 +8592,7 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                       :class="{
                         'data-grid-cell--frozen': col.visibleColIdx < frozenColumnCount,
                         'data-grid-cell--frozen-separator': frozenColumnCount > 0 && col.visibleColIdx === frozenColumnCount - 1,
+                        'text-right': columnAligns[col.visibleColIdx] === 'right',
                         'text-muted-foreground italic': isNull(item.data[col.actualColIdx]),
                         'bg-yellow-500/10 cell-dirty': item.isDirtyCol[col.actualColIdx],
                         'cell-selected': cellIsSelected(item.displayIndex, col.visibleColIdx) && !item.isDirtyCol[col.actualColIdx],

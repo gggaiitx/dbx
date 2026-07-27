@@ -2395,6 +2395,7 @@ mod tests {
                 vec![json!(2), json!("Bob"), json!(82000)],
                 vec![json!(3), Value::Null, json!(0)],
             ],
+            numeric_column_right_align: false,
         };
         let workbook = build_xlsx_workbook(&data).expect("XLSX build should succeed");
 

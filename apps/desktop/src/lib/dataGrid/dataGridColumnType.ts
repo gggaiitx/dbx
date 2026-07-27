@@ -31,3 +31,50 @@ export function resolveHeaderColumnType({ tableColumnType, resultColumnTypes, ac
 export function compactHeaderColumnType(dataType: string): string {
   return /^enum\s*\(/i.test(dataType.trim()) ? "enum" : dataType;
 }
+
+const NUMERIC_COLUMN_TYPE_BASES = new Set([
+  "tinyint",
+  "smallint",
+  "mediumint",
+  "int",
+  "integer",
+  "bigint",
+  "serial",
+  "smallserial",
+  "bigserial",
+  "int2",
+  "int4",
+  "int8",
+  "uint",
+  "uint8",
+  "uint16",
+  "uint32",
+  "uint64",
+  "uint128",
+  "uint256",
+  "float",
+  "float4",
+  "float8",
+  "float32",
+  "float64",
+  "real",
+  "double",
+  "decimal",
+  "numeric",
+  "number",
+  "dec",
+  "fixed",
+  "money",
+  "smallmoney",
+  "binary_float",
+  "binary_double",
+]);
+
+export function isNumericColumnType(dataType: string | undefined): boolean {
+  if (!dataType) return false;
+  const base = dataType
+    .trim()
+    .toLowerCase()
+    .split(/[\s([]/, 1)[0];
+  return NUMERIC_COLUMN_TYPE_BASES.has(base);
+}

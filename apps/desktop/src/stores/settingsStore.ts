@@ -421,6 +421,7 @@ export interface EditorSettings {
   dataGridAutoTransposeSingleRow: boolean;
   dataGridMultiRowTranspose: boolean;
   dataGridHideNullColumns: boolean;
+  numericColumnRightAlign: boolean;
   tableFontFamily: string;
   tableFontSize: number;
   structureEditorDensity: StructureEditorDensity;
@@ -585,6 +586,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   dataGridAutoTransposeSingleRow: false,
   dataGridMultiRowTranspose: false,
   dataGridHideNullColumns: false,
+  numericColumnRightAlign: true,
   tableFontFamily: DEFAULT_DATA_GRID_FONT_FAMILY,
   tableFontSize: TABLE_FONT_SIZE_DEFAULT,
   structureEditorDensity: "compact",

@@ -5,7 +5,7 @@ import { appendDebugLog, isDebugLoggingEnabled } from "@/lib/backend/debugLog";
 import { canReloadUnavailableDataTab } from "@/lib/table/tableDataRefresh";
 import type { CSSProperties } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Columns3, Columns3Cog, EyeOff, Loader2, Search, TableProperties, ChevronDown, ChevronUp, Inbox, RefreshCcw, Wrench, Toolbox, Database, Download, Upload, X, Pin, Rows3, SquareDashed, Minus, Plus, ShieldAlert } from "@lucide/vue";
+import { Check, Columns3, Columns3Cog, EyeOff, Loader2, Search, TableProperties, ChevronDown, ChevronUp, Inbox, RefreshCcw, Wrench, Toolbox, Database, Download, Upload, X, Pin, Rows3, SquareDashed, Minus, Plus, ShieldAlert, AlignLeft, AlignRight } from "@lucide/vue";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
 import { Button } from "@/components/ui/button";
@@ -253,6 +253,12 @@ function setColumnWidthDensity(value: "compact" | "standard" | "comfortable") {
 
 function setTableFontSize(value: number) {
   settingsStore.updateEditorSettings({ tableFontSize: value });
+}
+
+const numericColumnRightAlign = computed(() => settingsStore.editorSettings.numericColumnRightAlign);
+
+function setNumericColumnRightAlign(value: boolean) {
+  settingsStore.updateEditorSettings({ numericColumnRightAlign: value });
 }
 
 function decreaseTableFontSize() {
@@ -1065,6 +1071,30 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
                         </div>
                       </LightTooltip>
                     </div>
+                    <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                      <div class="min-w-0 flex items-center gap-2 font-medium">
+                        <component :is="numericColumnRightAlign ? AlignRight : AlignLeft" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span>{{ t("grid.numericColumnAlign") }}</span>
+                      </div>
+                      <div class="grid w-32 grid-cols-2 rounded-md border bg-muted/40 p-0.5">
+                        <button
+                          type="button"
+                          class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                          :class="!numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                          @click="setNumericColumnRightAlign(false)"
+                        >
+                          {{ t("grid.numericColumnAlignLeft") }}
+                        </button>
+                        <button
+                          type="button"
+                          class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                          :class="numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                          @click="setNumericColumnRightAlign(true)"
+                        >
+                          {{ t("grid.numericColumnAlignRight") }}
+                        </button>
+                      </div>
+                    </div>
                     <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs" :class="{ 'opacity-60': !dataGridRef?.canToggleAllNullColumns }">
                       <span class="min-w-0 flex items-center gap-2 font-medium">
                         <EyeOff class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1481,6 +1511,30 @@ defineExpose({ focusSearch, refreshData, refreshQueryEditorCompletionCache, hand
                     </button>
                   </div>
                 </LightTooltip>
+              </div>
+              <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                <div class="min-w-0 flex items-center gap-2 font-medium">
+                  <component :is="numericColumnRightAlign ? AlignRight : AlignLeft" class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span>{{ t("grid.numericColumnAlign") }}</span>
+                </div>
+                <div class="grid w-32 grid-cols-2 rounded-md border bg-muted/40 p-0.5">
+                  <button
+                    type="button"
+                    class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                    :class="!numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                    @click="setNumericColumnRightAlign(false)"
+                  >
+                    {{ t("grid.numericColumnAlignLeft") }}
+                  </button>
+                  <button
+                    type="button"
+                    class="h-5 min-w-0 truncate whitespace-nowrap rounded-[5px] px-2 text-xs transition-colors"
+                    :class="numericColumnRightAlign ? 'bg-background font-semibold text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                    @click="setNumericColumnRightAlign(true)"
+                  >
+                    {{ t("grid.numericColumnAlignRight") }}
+                  </button>
+                </div>
               </div>
               <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs" :class="{ 'opacity-60': !dataGridRef?.canToggleAllNullColumns }">
                 <span class="min-w-0 flex items-center gap-2 font-medium">

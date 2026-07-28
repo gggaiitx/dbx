@@ -2635,15 +2635,6 @@ fn parse_enum_values_from_row(row: &Row, index: usize) -> Option<Vec<String>> {
 /// encode booleans as the ASCII bytes `t` (0x74) / `f` (0x66) in the binary
 /// protocol instead of the standard PostgreSQL 0x00 / 0x01.
 fn pg_bool_value_to_json(row: &Row, idx: usize) -> serde_json::Value {
-    if let Ok(v) = row.try_get::<_, bool>(idx) {
-        return serde_json::Value::Bool(v);
-    }
-    // GaussDB encodes boolean as ASCII 't' (0x74) / 'f' (0x66) in binary.
-    if let Ok(PgRawBytes(raw)) = row.try_get::<_, PgRawBytes>(idx) {
-        if let Some(v) = decode_bool_bytes(&raw) {
-            return serde_json::Value::Bool(v);
-        }
-    }
     if let Some(v) = pg_row_try_bool(row, idx) {
         return serde_json::Value::Bool(v);
     }
@@ -2664,18 +2655,19 @@ fn decode_bool_bytes(raw: &[u8]) -> Option<bool> {
     }
 }
 
+fn decode_bool_candidates(raw: Option<&[u8]>, standard: Option<bool>) -> Option<bool> {
+    raw.and_then(decode_bool_bytes).or(standard)
+}
+
 /// Read a boolean column from a PostgreSQL row, tolerating databases that
 /// encode booleans as integers (0/1) or text ('t'/'f') instead of the standard
 /// `bool` OID.  Returns `None` when the column is NULL or truly unreadable.
 fn pg_row_try_bool(row: &Row, idx: usize) -> Option<bool> {
-    if let Ok(v) = row.try_get::<_, bool>(idx) {
-        return Some(v);
-    }
     // GaussDB encodes boolean as ASCII 't' (0x74) / 'f' (0x66) in binary.
-    if let Ok(PgRawBytes(raw)) = row.try_get::<_, PgRawBytes>(idx) {
-        if let Some(v) = decode_bool_bytes(&raw) {
-            return Some(v);
-        }
+    let raw = row.try_get::<_, PgRawBytes>(idx).ok();
+    let standard = row.try_get::<_, bool>(idx).ok();
+    if let Some(v) = decode_bool_candidates(raw.as_ref().map(|value| value.0.as_slice()), standard) {
+        return Some(v);
     }
     if let Ok(v) = row.try_get::<_, i32>(idx) {
         return Some(v != 0);
@@ -4551,6 +4543,15 @@ mod tests {
         assert_eq!(decode_bool_bytes(&[0x02]), None);
         assert_eq!(decode_bool_bytes(&[0x74, 0x66]), None);
         assert_eq!(decode_bool_bytes(&[]), None);
+    }
+
+    #[test]
+    fn raw_gaussdb_boolean_takes_precedence_over_standard_decoder() {
+        assert_eq!(decode_bool_candidates(Some(b"f"), Some(true)), Some(false));
+        assert_eq!(decode_bool_candidates(Some(b"t"), Some(true)), Some(true));
+        assert_eq!(decode_bool_candidates(Some(&[0x00]), Some(true)), Some(false));
+        assert_eq!(decode_bool_candidates(Some(&[0x01]), Some(false)), Some(true));
+        assert_eq!(decode_bool_candidates(Some(&[0x02]), Some(false)), Some(false));
     }
 
     #[test]

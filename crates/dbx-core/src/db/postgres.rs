@@ -523,7 +523,7 @@ pub(crate) fn pg_value_to_json_classified(row: &Row, idx: usize, col_type: PgCol
             }
             serde_json::Value::Null
         }
-        PgColType::Bool => row.try_get::<_, bool>(idx).map(serde_json::Value::Bool).unwrap_or(serde_json::Value::Null),
+        PgColType::Bool => pg_bool_value_to_json(row, idx),
         PgColType::Interval => row
             .try_get::<_, PgInterval>(idx)
             .map(|interval| serde_json::Value::String(format_pg_interval(interval)))
@@ -2631,12 +2631,51 @@ fn parse_enum_values_from_row(row: &Row, index: usize) -> Option<Vec<String>> {
     serde_json::from_str::<Vec<String>>(&raw).ok()
 }
 
+/// Decode a boolean column to JSON, tolerating databases (e.g. GaussDB) that
+/// encode booleans as the ASCII bytes `t` (0x74) / `f` (0x66) in the binary
+/// protocol instead of the standard PostgreSQL 0x00 / 0x01.
+fn pg_bool_value_to_json(row: &Row, idx: usize) -> serde_json::Value {
+    if let Ok(v) = row.try_get::<_, bool>(idx) {
+        return serde_json::Value::Bool(v);
+    }
+    // GaussDB encodes boolean as ASCII 't' (0x74) / 'f' (0x66) in binary.
+    if let Ok(PgRawBytes(raw)) = row.try_get::<_, PgRawBytes>(idx) {
+        if let Some(v) = decode_bool_bytes(&raw) {
+            return serde_json::Value::Bool(v);
+        }
+    }
+    if let Some(v) = pg_row_try_bool(row, idx) {
+        return serde_json::Value::Bool(v);
+    }
+    serde_json::Value::Null
+}
+
+/// Map raw boolean bytes to a Rust `bool`.
+///
+/// Standard PostgreSQL binary uses `[0x00]` / `[0x01]`; GaussDB sends the ASCII
+/// text representation `[b't']` / `[b'f']` instead.
+fn decode_bool_bytes(raw: &[u8]) -> Option<bool> {
+    match raw {
+        [0x00] => Some(false),
+        [0x01] => Some(true),
+        [b't'] | [b'T'] => Some(true),
+        [b'f'] | [b'F'] => Some(false),
+        _ => None,
+    }
+}
+
 /// Read a boolean column from a PostgreSQL row, tolerating databases that
 /// encode booleans as integers (0/1) or text ('t'/'f') instead of the standard
 /// `bool` OID.  Returns `None` when the column is NULL or truly unreadable.
 fn pg_row_try_bool(row: &Row, idx: usize) -> Option<bool> {
     if let Ok(v) = row.try_get::<_, bool>(idx) {
         return Some(v);
+    }
+    // GaussDB encodes boolean as ASCII 't' (0x74) / 'f' (0x66) in binary.
+    if let Ok(PgRawBytes(raw)) = row.try_get::<_, PgRawBytes>(idx) {
+        if let Some(v) = decode_bool_bytes(&raw) {
+            return Some(v);
+        }
     }
     if let Ok(v) = row.try_get::<_, i32>(idx) {
         return Some(v != 0);
@@ -4494,6 +4533,24 @@ mod tests {
 
         let raw = PgRawBytes::from_sql(&Type::UNKNOWN, &[0x01, 0xAB, 0xFF]).unwrap();
         assert_eq!(raw.0, vec![0x01, 0xAB, 0xFF]);
+    }
+
+    #[test]
+    fn decode_bool_bytes_handles_standard_and_gaussdb_encodings() {
+        // Standard PostgreSQL binary boolean: 0x00 / 0x01
+        assert_eq!(decode_bool_bytes(&[0x00]), Some(false));
+        assert_eq!(decode_bool_bytes(&[0x01]), Some(true));
+        // GaussDB binary boolean: ASCII 't' (0x74) / 'f' (0x66)
+        assert_eq!(decode_bool_bytes(&[0x74]), Some(true));
+        assert_eq!(decode_bool_bytes(&[0x66]), Some(false));
+        assert_eq!(decode_bool_bytes(b"t"), Some(true));
+        assert_eq!(decode_bool_bytes(b"f"), Some(false));
+        assert_eq!(decode_bool_bytes(b"T"), Some(true));
+        assert_eq!(decode_bool_bytes(b"F"), Some(false));
+        // Unrecognized encodings return None
+        assert_eq!(decode_bool_bytes(&[0x02]), None);
+        assert_eq!(decode_bool_bytes(&[0x74, 0x66]), None);
+        assert_eq!(decode_bool_bytes(&[]), None);
     }
 
     #[test]

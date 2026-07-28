@@ -1,6 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { collectSqlPaths, aggregateFileProgress, computeBatchTerminalStatus, shouldContinueBatch, runWithConcurrency, isTerminalFileStatus } from "../../apps/desktop/src/lib/sql/sqlFileBatch.ts";
+import { collectSqlPaths, aggregateFileProgress, computeBatchTerminalStatus, shouldContinueBatch, startWithCancellationHandshake, runWithConcurrency, isTerminalFileStatus } from "../../apps/desktop/src/lib/sql/sqlFileBatch.ts";
 import type { SqlFileEntry, SqlFileProgress } from "../../apps/desktop/src/lib/backend/api.ts";
 
 function entry(name: string, path: string, isDir = false, children: SqlFileEntry[] = []): SqlFileEntry {
@@ -127,6 +127,34 @@ test("shouldContinueBatch continues after error when continueOnError is true", (
 test("shouldContinueBatch stops after cancelled regardless of continueOnError", () => {
   assert.equal(shouldContinueBatch("cancelled", false), false);
   assert.equal(shouldContinueBatch("cancelled", true), false);
+});
+
+test("startWithCancellationHandshake retries cancellation after registration", async () => {
+  let registered = false;
+  let cancellationRequested = false;
+  let cancelled = false;
+  let finishStart: (() => void) | undefined;
+
+  const cancel = async () => {
+    if (registered) cancelled = true;
+  };
+  const start = () =>
+    new Promise<void>((resolve) => {
+      finishStart = () => {
+        registered = true;
+        resolve();
+      };
+    });
+
+  const execution = startWithCancellationHandshake(start, () => cancellationRequested, cancel);
+  cancellationRequested = true;
+  await cancel();
+  assert.equal(cancelled, false, "the early cancellation attempt should miss registration");
+
+  finishStart?.();
+  await execution;
+
+  assert.equal(cancelled, true, "cancellation should be resent after registration completes");
 });
 
 // ---------------------------------------------------------------------------

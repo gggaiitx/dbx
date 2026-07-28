@@ -108,6 +108,13 @@ export function shouldContinueBatch(lastStatus: BatchFileStatus, continueOnError
   return false;
 }
 
+export async function startWithCancellationHandshake(start: () => Promise<void>, isCancellationRequested: () => boolean, cancel: () => Promise<unknown>): Promise<void> {
+  await start();
+  if (isCancellationRequested()) {
+    await cancel();
+  }
+}
+
 /**
  * Run an async task producer against a bounded worker pool. Items are pulled
  * from `items` in order and dispatched to up to `concurrency` workers. The

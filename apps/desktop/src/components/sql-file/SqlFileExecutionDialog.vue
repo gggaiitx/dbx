@@ -21,7 +21,7 @@ import { cancelSqlFileExecution, claimSqlFileUploads, executeSqlFile, listenSqlF
 import * as api from "@/lib/backend/api";
 import { useExportTracker } from "@/composables/useExportTracker";
 import { setFileDropIntercepted } from "@/composables/useFileDrop";
-import { collectSqlPaths, aggregateFileProgress, computeBatchTerminalStatus as computeBatchTerminalStatusPure, shouldContinueBatch, runWithConcurrency, isTerminalFileStatus, type BatchFileStatus } from "@/lib/sql/sqlFileBatch";
+import { collectSqlPaths, aggregateFileProgress, computeBatchTerminalStatus as computeBatchTerminalStatusPure, shouldContinueBatch, startWithCancellationHandshake, runWithConcurrency, isTerminalFileStatus, type BatchFileStatus } from "@/lib/sql/sqlFileBatch";
 import { Check, CheckSquare, FileCode, FolderOpen, FolderSearch, Loader2, Play, Square, X, Trash2, ChevronDown, ChevronRight } from "@lucide/vue";
 
 const { t } = useI18n();
@@ -464,13 +464,18 @@ async function runFile(file: BatchFileItem): Promise<BatchFileStatus> {
     : null;
 
   try {
-    await executeSqlFile({
-      executionId: id,
-      connectionId: connectionId.value,
-      database: database.value.trim(),
-      filePath: file.preview.filePath,
-      continueOnError: continueOnError.value,
-    });
+    await startWithCancellationHandshake(
+      () =>
+        executeSqlFile({
+          executionId: id,
+          connectionId: connectionId.value,
+          database: database.value.trim(),
+          filePath: file.preview.filePath,
+          continueOnError: continueOnError.value,
+        }),
+      () => cancelRequested.value,
+      () => cancelSqlFileExecution(id),
+    );
 
     if (isWeb) {
       // Subscribe to SSE only after the POST has successfully created the
@@ -611,12 +616,7 @@ async function startExecution() {
     if (isWebMode.value) {
       const filePaths = files.value.map((f) => f.preview.filePath);
       if (filePaths.length) {
-        try {
-          await claimSqlFileUploads(filePaths);
-        } catch {
-          // Best-effort: if the claim fails, individual files may still be
-          // deleted by their TTL, but execution should proceed.
-        }
+        await claimSqlFileUploads(filePaths);
       }
     }
     // Web mode loads each uploaded file fully into memory, so parallel

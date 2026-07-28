@@ -9,12 +9,6 @@ pub fn sse_from_channel(
     sse_from_channel_with_lag_policy(rx, false)
 }
 
-pub fn sse_from_lossy_channel(
-    rx: broadcast::Receiver<String>,
-) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
-    sse_from_channel_with_lag_policy(rx, true)
-}
-
 fn sse_from_channel_with_lag_policy(
     mut rx: broadcast::Receiver<String>,
     recover_from_lag: bool,

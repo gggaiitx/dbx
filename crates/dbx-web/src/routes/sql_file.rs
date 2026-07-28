@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::{Multipart, Path as AxumPath, State};
-use axum::response::sse::{Event, Sse};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
 use dbx_core::sql;
 use dbx_core::sql::{SqlFileProgress, SqlFileRequest, SqlFileStatus};
@@ -13,7 +13,7 @@ use dbx_core::sql_file_import::{
 };
 use futures::stream::Stream;
 use serde::Deserialize;
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self, error::RecvError};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AppError;
@@ -58,9 +58,14 @@ pub async fn preview_sql_file(
         // isn't deleted while queued behind other files.
         let file_path_key = file_path.to_string_lossy().to_string();
         let ttl_dir = upload_dir.clone();
+        let ttl_state = state.clone();
+        let ttl_key = file_path_key.clone();
         let ttl_handle = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(300)).await;
-            let _ = std::fs::remove_dir_all(&ttl_dir);
+            let should_delete = ttl_state.sql_file_upload_ttls.write().await.remove(&ttl_key).is_some();
+            if should_delete {
+                let _ = std::fs::remove_dir_all(&ttl_dir);
+            }
         });
         state.sql_file_upload_ttls.write().await.insert(file_path_key, ttl_handle);
 
@@ -118,21 +123,9 @@ pub async fn execute_sql_file(
 
     tokio::spawn(async move {
         let started_at = Instant::now();
-        // The emit callback atomically broadcasts progress AND persists
-        // terminal progress to the store in the same synchronous call.
-        // This closes the race where a terminal is broadcast but the store
-        // hasn't been updated when a late subscriber rechecks it.
         let state_for_emit = state_clone.clone();
-        let execution_id_for_emit = req.execution_id.clone();
         let mut progress_emitter = SqlFileProgressEmitter::new(move |progress: SqlFileProgress| {
-            send_sql_file_progress(&tx, progress.clone());
-            if matches!(progress.status, SqlFileStatus::Done | SqlFileStatus::Error | SqlFileStatus::Cancelled) {
-                state_for_emit
-                    .sql_file_terminal_progress
-                    .write()
-                    .unwrap()
-                    .insert(execution_id_for_emit.clone(), (progress, Instant::now()));
-            }
+            publish_sql_file_progress(&state_for_emit, &tx, progress);
         });
         progress_emitter.emit(build_sql_file_progress(
             &req.execution_id,
@@ -184,7 +177,7 @@ pub async fn execute_sql_file(
         // failure) without emitting a terminal progress, convert it to an
         // Error progress so late SSE subscribers receive a terminal status
         // instead of waiting until the 10-minute timeout. The emit callback
-        // atomically persists terminal progress to the store, so we just need
+        // persists terminal progress before broadcasting it, so we just need
         // to check the store.
         if let Err(e) = result {
             let has_terminal = state_clone.sql_file_terminal_progress.read().unwrap().contains_key(&req.execution_id);
@@ -199,7 +192,14 @@ pub async fn execute_sql_file(
     Ok(Json(serde_json::json!({ "executionId": execution_id })))
 }
 
-fn send_sql_file_progress(tx: &broadcast::Sender<String>, progress: SqlFileProgress) {
+fn publish_sql_file_progress(state: &WebState, tx: &broadcast::Sender<String>, progress: SqlFileProgress) {
+    if matches!(progress.status, SqlFileStatus::Done | SqlFileStatus::Error | SqlFileStatus::Cancelled) {
+        state
+            .sql_file_terminal_progress
+            .write()
+            .unwrap()
+            .insert(progress.execution_id.clone(), (progress.clone(), Instant::now()));
+    }
     if let Ok(json) = serde_json::to_string(&progress) {
         let _ = tx.send(json);
     }
@@ -208,8 +208,8 @@ fn send_sql_file_progress(tx: &broadcast::Sender<String>, progress: SqlFileProgr
 /// Finalize a SQL file execution: delete the uploaded temp file, remove the
 /// active execution tracking and broadcast channel, and schedule eviction of
 /// the terminal progress entry after a 5-minute TTL. The terminal progress
-/// itself is already persisted by the emit callback (atomically with the
-/// broadcast), so this function only handles cleanup.
+/// itself is already persisted by the emit callback before the broadcast, so
+/// this function only handles cleanup.
 async fn finalize_execution(state: &Arc<WebState>, execution_id: &str, file_path: &Path) {
     // Delete the uploaded temp file and its (now empty) parent upload dir.
     let _ = std::fs::remove_file(file_path);
@@ -244,74 +244,77 @@ pub async fn sql_file_progress(
     State(state): State<Arc<WebState>>,
     AxumPath(execution_id): AxumPath<String>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, AppError> {
-    // 1. Try to get an active broadcast channel — the normal case where the
-    //    POST has already arrived and the task is still running.
-    {
-        let channels = state.sse_channels.read().await;
-        if let Some(tx) = channels.get(&execution_id) {
-            let rx = tx.subscribe();
-            drop(channels);
-            // Recheck the terminal store after subscribing. The emit callback
-            // atomically broadcasts AND writes to the store, so if the terminal
-            // was already sent the store will have it. A new broadcast receiver
-            // only receives messages sent AFTER subscribe, so without this
-            // recheck a late subscriber would miss the terminal.
-            let terminals = state.sql_file_terminal_progress.read().unwrap();
-            if let Some((progress, _)) = terminals.get(&execution_id) {
-                let json = serde_json::to_string(progress).unwrap_or_default();
-                drop(terminals);
-                let (tx2, rx2) = broadcast::channel::<String>(1);
-                let _ = tx2.send(json);
-                drop(tx2);
-                return Ok(crate::sse::sse_from_lossy_channel(rx2));
-            }
-            return Ok(crate::sse::sse_from_lossy_channel(rx));
-        }
-    }
-
-    // 2. No active channel — the task may have already finished. Check the
-    //    terminal progress store and evict stale entries while we're at it.
-    {
-        let mut terminals = state.sql_file_terminal_progress.write().unwrap();
-        let mut stale = Vec::new();
-        for (id, (_, ts)) in terminals.iter() {
-            if ts.elapsed() > TERMINAL_PROGRESS_TTL {
-                stale.push(id.clone());
-            }
-        }
-        for id in &stale {
-            terminals.remove(id);
-        }
-        if let Some((progress, _)) = terminals.get(&execution_id) {
-            let json = serde_json::to_string(progress).unwrap_or_default();
-            drop(terminals);
-            // Return a single-event SSE stream with the terminal progress.
-            // Use a broadcast channel (immediately closed after sending) so
-            // the return type matches the other branches that use
-            // sse_from_lossy_channel.
-            let (tx, rx) = broadcast::channel::<String>(1);
-            let _ = tx.send(json);
-            drop(tx);
-            return Ok(crate::sse::sse_from_lossy_channel(rx));
-        }
-    }
-
-    // 3. Neither active channel nor terminal progress — the POST request may
-    //    still be in flight (network reordering, EventSource connected
-    //    before the POST arrived). Wait briefly for the channel to appear.
     let deadline = Instant::now() + CHANNEL_WAIT_TIMEOUT;
     loop {
+        if let Some(rx) = sql_file_progress_receiver(&state, &execution_id).await {
+            return Ok(sql_file_progress_sse(state.clone(), execution_id.clone(), rx));
+        }
         if Instant::now() >= deadline {
             return Err(AppError::from("Execution not found".to_string()));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        let channels = state.sse_channels.read().await;
-        if let Some(tx) = channels.get(&execution_id) {
-            let rx = tx.subscribe();
-            drop(channels);
-            return Ok(crate::sse::sse_from_lossy_channel(rx));
-        }
     }
+}
+
+async fn sql_file_progress_receiver(state: &WebState, execution_id: &str) -> Option<broadcast::Receiver<String>> {
+    let active = {
+        let channels = state.sse_channels.read().await;
+        channels.get(execution_id).map(broadcast::Sender::subscribe)
+    };
+
+    if let Some(terminal) = terminal_progress_json(state, execution_id) {
+        return Some(single_event_receiver(terminal));
+    }
+
+    active
+}
+
+fn terminal_progress_json(state: &WebState, execution_id: &str) -> Option<String> {
+    let mut terminals = state.sql_file_terminal_progress.write().unwrap();
+    terminals.retain(|_, (_, timestamp)| timestamp.elapsed() <= TERMINAL_PROGRESS_TTL);
+    terminals.get(execution_id).and_then(|(progress, _)| serde_json::to_string(progress).ok())
+}
+
+fn single_event_receiver(data: String) -> broadcast::Receiver<String> {
+    let (tx, rx) = broadcast::channel(1);
+    let _ = tx.send(data);
+    drop(tx);
+    rx
+}
+
+fn sql_file_progress_sse(
+    state: Arc<WebState>,
+    execution_id: String,
+    mut rx: broadcast::Receiver<String>,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let stream = async_stream::stream! {
+        let mut last_data: Option<String> = None;
+        loop {
+            match rx.recv().await {
+                Ok(data) => {
+                    last_data = Some(data.clone());
+                    yield Ok(Event::default().data(data));
+                }
+                Err(RecvError::Lagged(_)) => {
+                    if let Some(terminal) = terminal_progress_json(&state, &execution_id) {
+                        if last_data.as_deref() != Some(terminal.as_str()) {
+                            yield Ok(Event::default().data(terminal));
+                        }
+                        break;
+                    }
+                }
+                Err(RecvError::Closed) => {
+                    if let Some(terminal) = terminal_progress_json(&state, &execution_id) {
+                        if last_data.as_deref() != Some(terminal.as_str()) {
+                            yield Ok(Event::default().data(terminal));
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    };
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 pub async fn cancel_sql_file(
@@ -368,17 +371,30 @@ pub struct ClaimUploadsRequest {
 pub async fn claim_sql_file_uploads(
     State(state): State<Arc<WebState>>,
     Json(req): Json<ClaimUploadsRequest>,
-) -> Json<serde_json::Value> {
-    let mut claimed = 0;
+) -> Result<Json<serde_json::Value>, AppError> {
     let mut ttls = state.sql_file_upload_ttls.write().await;
+    let unavailable: Vec<String> = req
+        .file_paths
+        .iter()
+        .filter(|file_path| {
+            !ttls.contains_key(file_path.as_str()) || validated_uploaded_sql_path(&state.data_dir, file_path).is_err()
+        })
+        .cloned()
+        .collect();
+    if !unavailable.is_empty() {
+        return Err(AppError::bad_request(format!(
+            "Unable to claim all SQL file uploads; unavailable paths: {}",
+            serde_json::to_string(&unavailable).unwrap_or_default()
+        )));
+    }
+
     for file_path in &req.file_paths {
         if let Some(handle) = ttls.remove(file_path) {
             handle.abort();
-            claimed += 1;
         }
     }
     drop(ttls);
-    Json(serde_json::json!({ "claimed": claimed }))
+    Ok(Json(serde_json::json!({ "claimed": req.file_paths.len(), "unavailable": [] })))
 }
 
 /// Build a safe destination path for an uploaded file inside `upload_dir`,
@@ -409,7 +425,7 @@ fn validated_uploaded_sql_path(data_dir: &Path, file_path: &str) -> Result<PathB
 
 #[cfg(test)]
 mod tests {
-    use super::{safe_uploaded_sql_path, sql_file_progress, validated_uploaded_sql_path};
+    use super::{publish_sql_file_progress, safe_uploaded_sql_path, sql_file_progress, validated_uploaded_sql_path};
     use crate::state::{LoginRateLimit, WebState};
     use axum::body::to_bytes;
     use axum::extract::{Path as AxumPath, State};
@@ -457,6 +473,14 @@ mod tests {
             statement_summary: "SELECT 1".to_string(),
             error: None,
         }
+    }
+
+    fn create_uploaded_sql_file(data_dir: &std::path::Path, name: &str) -> String {
+        let upload_dir = data_dir.join("tmp").join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&upload_dir).unwrap();
+        let path = upload_dir.join(name);
+        std::fs::write(&path, "select 1;").unwrap();
+        path.to_string_lossy().to_string()
     }
 
     #[test]
@@ -590,6 +614,68 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[tokio::test]
+    async fn get_before_post_replays_fast_terminal_completion() {
+        let (state, dir) = test_web_state().await;
+        let execution_id = "exec-fast-terminal";
+
+        let state_clone = state.clone();
+        let id_clone = execution_id.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            let (tx, _rx) = broadcast::channel::<String>(256);
+            state_clone.sse_channels.write().await.insert(id_clone.clone(), tx.clone());
+            publish_sql_file_progress(&state_clone, &tx, make_terminal_progress(&id_clone));
+            state_clone.remove_sse_channel(&id_clone).await;
+            drop(tx);
+        });
+
+        let sse = tokio::time::timeout(
+            Duration::from_secs(2),
+            sql_file_progress(State(state.clone()), AxumPath(execution_id.to_string())),
+        )
+        .await
+        .expect("progress lookup should replay terminal instead of waiting for timeout")
+        .unwrap_or_else(|error| panic!("expected terminal SSE: {}", error.message));
+        let bytes =
+            tokio::time::timeout(Duration::from_secs(2), to_bytes(sse.into_response().into_body(), 1024 * 1024))
+                .await
+                .expect("terminal SSE body should complete")
+                .expect("terminal SSE body should be readable");
+        assert!(String::from_utf8(bytes.to_vec()).unwrap().contains("\"status\":\"done\""));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn active_channel_close_rechecks_terminal_store() {
+        let (state, dir) = test_web_state().await;
+        let execution_id = "exec-closed-channel-terminal";
+        let (tx, _rx) = broadcast::channel::<String>(256);
+        state.sse_channels.write().await.insert(execution_id.to_string(), tx.clone());
+
+        let sse = sql_file_progress(State(state.clone()), AxumPath(execution_id.to_string()))
+            .await
+            .unwrap_or_else(|error| panic!("expected active SSE: {}", error.message));
+
+        state
+            .sql_file_terminal_progress
+            .write()
+            .unwrap()
+            .insert(execution_id.to_string(), (make_terminal_progress(execution_id), Instant::now()));
+        state.remove_sse_channel(execution_id).await;
+        drop(tx);
+
+        let bytes =
+            tokio::time::timeout(Duration::from_secs(2), to_bytes(sse.into_response().into_body(), 1024 * 1024))
+                .await
+                .expect("closed channel should replay terminal")
+                .expect("terminal SSE body should be readable");
+        assert!(String::from_utf8(bytes.to_vec()).unwrap().contains("\"status\":\"done\""));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// GET arrives with no POST and no terminal progress: the handler should
     /// NOT return immediately with an error — it should be waiting. We verify
     /// this by racing against a short timeout and expecting the handler to
@@ -680,9 +766,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Regression: the terminal progress is broadcast via the channel AND
-    /// persisted to the store atomically (in the same emit callback). This
-    /// test verifies that after the terminal is emitted (store has it) but
+    /// Regression: the terminal progress is persisted before it is broadcast
+    /// via the channel. This test verifies that after the terminal is emitted
+    /// (store has it) but
     /// before the channel is cleaned up (channel still active), a late
     /// subscriber that subscribes AFTER the broadcast will still find the
     /// terminal in the store — not miss it due to broadcast's "only post-
@@ -697,8 +783,7 @@ mod tests {
         let (state, dir) = test_web_state().await;
         let execution_id = "exec-terminal-emitted-not-finalized";
 
-        // Simulate the emit callback: broadcast the terminal AND write to the
-        // store in the same synchronous step (as the real emit callback does).
+        // Simulate the real emit callback.
         let (tx, _old_rx) = broadcast::channel::<String>(256);
         let progress = make_terminal_progress(execution_id);
         let json = serde_json::to_string(&progress).unwrap();
@@ -706,13 +791,11 @@ mod tests {
         // Channel is still active (finalize hasn't run yet).
         state.sse_channels.write().await.insert(execution_id.to_string(), tx.clone());
 
-        // Atomically broadcast + persist (this is what the emit callback does).
-        let _ = tx.send(json.clone());
-        state.sql_file_terminal_progress.write().unwrap().insert(execution_id.to_string(), (progress, Instant::now()));
+        publish_sql_file_progress(&state, &tx, progress);
 
         // Now a late subscriber arrives. It subscribes AFTER the terminal was
         // broadcast, so the new receiver won't get it from broadcast. But the
-        // store has it (written atomically with the broadcast), so the
+        // store has it (written before the broadcast), so the
         // recheck in sql_file_progress should find and return it.
         let result = sql_file_progress(State(state.clone()), AxumPath(execution_id.to_string())).await;
         assert!(result.is_ok(), "late subscriber should get terminal from store");
@@ -743,7 +826,11 @@ mod tests {
         use serde_json::json;
 
         let (state, dir) = test_web_state().await;
-        let paths = vec!["/tmp/a.sql".to_string(), "/tmp/b.sql".to_string(), "/tmp/c.sql".to_string()];
+        let paths = vec![
+            create_uploaded_sql_file(&dir, "a.sql"),
+            create_uploaded_sql_file(&dir, "b.sql"),
+            create_uploaded_sql_file(&dir, "c.sql"),
+        ];
 
         // Insert TTL handles for all three files.
         let ran = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -758,13 +845,42 @@ mod tests {
 
         // Claim all at once.
         let req = super::ClaimUploadsRequest { file_paths: paths.clone() };
-        let response = claim_sql_file_uploads(State(state.clone()), Json(req)).await;
+        let response = claim_sql_file_uploads(State(state.clone()), Json(req))
+            .await
+            .unwrap_or_else(|error| panic!("expected successful claim: {}", error.message));
         let v = response.0;
         assert_eq!(v["claimed"], json!(3), "should have claimed all 3 files");
 
         // Wait long enough for TTLs to have fired if they weren't aborted.
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 0, "all TTL tasks should have been aborted");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn partial_batch_claim_fails_without_claiming_any_file() {
+        use super::claim_sql_file_uploads;
+        use axum::Json;
+
+        let (state, dir) = test_web_state().await;
+        let available = create_uploaded_sql_file(&dir, "available.sql");
+        let unavailable = dir.join("tmp").join("missing").join("missing.sql").to_string_lossy().to_string();
+        let handle = tokio::spawn(async { tokio::time::sleep(Duration::from_secs(60)).await });
+        state.sql_file_upload_ttls.write().await.insert(available.clone(), handle);
+
+        let request = super::ClaimUploadsRequest { file_paths: vec![available.clone(), unavailable.clone()] };
+        let error =
+            claim_sql_file_uploads(State(state.clone()), Json(request)).await.expect_err("partial claim should fail");
+
+        assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(error.message.contains(&unavailable));
+        let mut ttls = state.sql_file_upload_ttls.write().await;
+        assert!(ttls.contains_key(&available), "available upload must remain unclaimed after an atomic failure");
+        if let Some(handle) = ttls.remove(&available) {
+            handle.abort();
+        }
+        drop(ttls);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

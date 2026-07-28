@@ -30,11 +30,9 @@ pub struct WebState {
     /// `Instant` records when the terminal progress was stored; entries older
     /// than the TTL are evicted lazily on read.
     //
-    // This uses `std::sync::RwLock` (not `tokio::sync::RwLock`) so the emit
-    // callback — which is synchronous — can write to the store atomically
-    // with the broadcast send. This closes the race where a terminal progress
-    // is broadcast but the store hasn't been updated yet when a late
-    // subscriber rechecks it.
+    // This uses `std::sync::RwLock` (not `tokio::sync::RwLock`) so the synchronous
+    // emit callback can persist terminal progress before broadcasting it. A
+    // subscriber that misses the broadcast can then replay the stored terminal.
     pub sql_file_terminal_progress: std::sync::RwLock<HashMap<String, (SqlFileProgress, std::time::Instant)>>,
     /// Preview TTL cleanup tasks for uploaded SQL files, keyed by the file
     /// path returned to the frontend. When execution starts (claim), the TTL

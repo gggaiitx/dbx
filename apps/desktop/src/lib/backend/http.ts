@@ -1485,6 +1485,10 @@ export async function releaseSqlFileUpload(filePath: string): Promise<void> {
   await post("/api/sql-file/release-upload", { filePath });
 }
 
+export async function claimSqlFileUploads(filePaths: string[]): Promise<void> {
+  await post("/api/sql-file/claim-uploads", { filePaths });
+}
+
 export async function listenSqlFileProgress(_handler: (progress: SqlFileProgress) => void): Promise<() => void> {
   // For HTTP mode we need an executionId, but the tauri API does not take one.
   // The SSE endpoint requires a specific executionId. As a workaround we return

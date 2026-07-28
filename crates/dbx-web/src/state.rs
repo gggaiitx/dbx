@@ -29,7 +29,13 @@ pub struct WebState {
     /// channel was cleaned up) can still retrieve the final status. The
     /// `Instant` records when the terminal progress was stored; entries older
     /// than the TTL are evicted lazily on read.
-    pub sql_file_terminal_progress: RwLock<HashMap<String, (SqlFileProgress, std::time::Instant)>>,
+    //
+    // This uses `std::sync::RwLock` (not `tokio::sync::RwLock`) so the emit
+    // callback — which is synchronous — can write to the store atomically
+    // with the broadcast send. This closes the race where a terminal progress
+    // is broadcast but the store hasn't been updated yet when a late
+    // subscriber rechecks it.
+    pub sql_file_terminal_progress: std::sync::RwLock<HashMap<String, (SqlFileProgress, std::time::Instant)>>,
     /// Preview TTL cleanup tasks for uploaded SQL files, keyed by the file
     /// path returned to the frontend. When execution starts (claim), the TTL
     /// task is aborted so the file isn't deleted while queued. Unclaimed

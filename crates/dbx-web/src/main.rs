@@ -205,7 +205,7 @@ async fn main() {
         sql_file_executions: RwLock::new(HashMap::new()),
         login_rate_limit: tokio::sync::Mutex::new(state::LoginRateLimit { fail_count: 0, locked_until: None }),
         export_files: RwLock::new(HashMap::new()),
-        sql_file_terminal_progress: RwLock::new(HashMap::new()),
+        sql_file_terminal_progress: std::sync::RwLock::new(HashMap::new()),
         sql_file_upload_ttls: RwLock::new(HashMap::new()),
     });
 
@@ -584,6 +584,7 @@ async fn main() {
         .route("/sql-file/progress/{executionId}", get(routes::sql_file::sql_file_progress))
         .route("/sql-file/cancel", post(routes::sql_file::cancel_sql_file))
         .route("/sql-file/release-upload", post(routes::sql_file::release_sql_file_upload))
+        .route("/sql-file/claim-uploads", post(routes::sql_file::claim_sql_file_uploads))
         // Table import
         .route("/import/preview", post(routes::table_import::preview_import))
         .route("/import/preview-source", post(routes::table_import::preview_uploaded_import))

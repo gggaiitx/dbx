@@ -2211,6 +2211,11 @@ export async function cancelSqlFileExecution(executionId: string): Promise<boole
 // surface; it is never called in the desktop runtime.
 export async function releaseSqlFileUpload(_filePath: string): Promise<void> {}
 
+// Tauri mode reads files directly from disk, so there is no uploaded temp
+// file TTL to claim. This stub exists only to satisfy the shared backend API
+// surface; it is never called in the desktop runtime.
+export async function claimSqlFileUploads(_filePaths: string[]): Promise<void> {}
+
 export async function listenSqlFileProgress(handler: (progress: SqlFileProgress) => void): Promise<UnlistenFn> {
   return listen<SqlFileProgress>("sql-file-progress", (event) => handler(event.payload));
 }

@@ -17,7 +17,7 @@ import { useProductionSafetyStore } from "@/stores/productionSafetyStore";
 import { productionContextForDatabase } from "@/lib/database/productionSafety";
 import { fetchSqlFileTargetOptions } from "@/composables/useDatabaseOptions";
 import { requiresSqlFileTargetDatabaseSelection } from "@/lib/connection/connectionLevelDatabaseBootstrap";
-import { cancelSqlFileExecution, executeSqlFile, listenSqlFileProgress, previewSqlFile, releaseSqlFileUpload, type SqlFilePreview, type SqlFileProgress, type SqlFileStatus } from "@/lib/backend/api";
+import { cancelSqlFileExecution, claimSqlFileUploads, executeSqlFile, listenSqlFileProgress, previewSqlFile, releaseSqlFileUpload, type SqlFilePreview, type SqlFileProgress, type SqlFileStatus } from "@/lib/backend/api";
 import * as api from "@/lib/backend/api";
 import { useExportTracker } from "@/composables/useExportTracker";
 import { setFileDropIntercepted } from "@/composables/useFileDrop";
@@ -604,6 +604,21 @@ async function startExecution() {
     }
 
     executionStarted.value = true;
+    // Claim all uploaded files at once before starting the batch so their
+    // preview TTLs are aborted. Without this, a long-running first file in
+    // sequential mode would let the 5-minute TTL delete subsequent files
+    // before they are reached.
+    if (isWebMode.value) {
+      const filePaths = files.value.map((f) => f.preview.filePath);
+      if (filePaths.length) {
+        try {
+          await claimSqlFileUploads(filePaths);
+        } catch {
+          // Best-effort: if the claim fails, individual files may still be
+          // deleted by their TTL, but execution should proceed.
+        }
+      }
+    }
     // Web mode loads each uploaded file fully into memory, so parallel
     // execution of several large files can exhaust memory. Force sequential
     // execution in web mode until streaming execution is available.

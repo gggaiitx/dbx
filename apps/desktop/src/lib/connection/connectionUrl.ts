@@ -834,3 +834,194 @@ export function applyParsedConnectionUrl(config: Omit<ConnectionConfig, "id">, p
     external_config: parsedExternalConfig(config.external_config, parsed),
   };
 }
+
+/**
+ * Types whose connection never has a host/edit-form URL (maintained separately).
+ * The connection dialog hides the "top URL" field for these, so we never build one.
+ */
+const URL_BUILD_EXCLUDED_TYPES = new Set<DatabaseType>(["jdbc", "nacos", "consul"]);
+
+/** Local/file-backed database types with no network authority to serialize. */
+const URL_BUILD_LOCAL_TYPES = new Set<DatabaseType>(["sqlite", "duckdb", "access"]);
+
+/** Hosted/cloud database types with no host edit field (or file/API based). */
+const URL_BUILD_HOSTED_TYPES = new Set<DatabaseType>(["dynamodb", "cloudflare-d1", "turso", "bigquery"]);
+
+/** Network scheme keyed by database type (used to build a copyable URL). */
+const URL_BUILD_SCHEME: Partial<Record<DatabaseType, string>> = {
+  mysql: "mysql",
+  doris: "mysql",
+  starrocks: "mysql",
+  manticoresearch: "mysql",
+  postgres: "postgresql",
+  gaussdb: "postgresql",
+  kwdb: "postgresql",
+  yashandb: "postgresql",
+  redshift: "postgresql",
+  questdb: "postgresql",
+  opengauss: "postgresql",
+  redis: "redis",
+  etcd: "etcd",
+  zookeeper: "zookeeper",
+  mongodb: "mongodb",
+  clickhouse: "clickhouse",
+  sqlserver: "mssql",
+  oracle: "oracle",
+  elasticsearch: "http",
+  easysearch: "http",
+  meilisearch: "http",
+  qdrant: "http",
+  milvus: "http",
+  weaviate: "http",
+  chromadb: "http",
+  victoriametrics: "http",
+  rqlite: "http",
+  influxdb: "http",
+  dameng: "dm",
+  kingbase: "kingbase8",
+  tdengine: "tdengine",
+  oscar: "oscar",
+  xugu: "xugu",
+  iotdb: "iotdb",
+  iris: "iris",
+};
+
+/** Databases that take a trailing database/service path in their URL. */
+const URL_BUILD_NAMED_PATH: ReadonlySet<string> = new Set([
+  "mysql",
+  "doris",
+  "starrocks",
+  "manticoresearch",
+  "postgres",
+  "gaussdb",
+  "kwdb",
+  "yashandb",
+  "redshift",
+  "questdb",
+  "opengauss",
+  "mongodb",
+  "clickhouse",
+  "kingbase",
+  "tdengine",
+  "oscar",
+  "xugu",
+  "iotdb",
+  "iris",
+  "influxdb",
+  "sqlserver",
+  "oracle",
+]);
+
+export type UrlBuildConfig = Pick<ConnectionConfig, "db_type" | "driver_profile" | "host" | "port" | "username" | "password" | "database" | "url_params" | "ssl" | "oracle_connection_type" | "external_config">;
+
+function urlBuilderUserinfo(dbType: DatabaseType, username: string, password: string): string {
+  // Keep the raw characters (e.g. a literal "@" in the password) instead of
+  // percent-encoding them. A standard URL parser uses the last "@" as the
+  // userinfo separator, so `user:pass@host` still round-trips correctly.
+  const user = username;
+  const pass = password ? `:${password}` : "";
+  // Redis keeps the password keyed by an empty username (":" before the password).
+  if (dbType === "redis" && !username && password) return `:${password}@`;
+  if (!user && !pass) return "";
+  return `${user}${pass}@`;
+}
+
+function urlBuilderEndpoint(host: string, port: number, defaultPort: number): string {
+  const normalizedHost = host.trim();
+  const hostPart = normalizedHost.includes(":") ? `[${normalizedHost}]` : normalizedHost;
+  const portPart = port > 0 && port !== defaultPort ? `:${port}` : "";
+  return `${hostPart}${portPart}`;
+}
+
+/** SQL datastores that carry an explicit runtime TLS parameter in the URL. */
+const URL_BUILD_SSL_PARAM_TYPES: ReadonlySet<string> = new Set(["mysql", "doris", "starrocks", "manticoresearch", "postgres", "gaussdb", "kwdb", "yashandb", "redshift", "questdb", "opengauss"]);
+
+function urlBuilderParams(dbType: DatabaseType, urlParams: string, ssl: boolean): string {
+  const collected: string[] = [];
+  if (urlParams.trim()) {
+    for (const part of urlParams.split(/[&;]/)) {
+      if (!part.trim()) continue;
+      collected.push(part.trim());
+    }
+  }
+  // HTTP-based datastores express TLS through the "https" scheme; other backends
+  // (redis, sqlserver, ...) convey it via their scheme or driver options.
+  if (ssl && URL_BUILD_SSL_PARAM_TYPES.has(dbType)) {
+    collected.push(dbType === "mysql" || dbType === "doris" || dbType === "starrocks" || dbType === "manticoresearch" ? "ssl-mode=required" : "sslmode=require");
+  }
+  if (collected.length === 0) return "";
+  return `?${collected.join("&")}`;
+}
+
+function urlBuilderBasePath(externalConfig: unknown): string | undefined {
+  if (!externalConfig || typeof externalConfig !== "object") return undefined;
+  const candidate = (externalConfig as Record<string, unknown>).basePath ?? (externalConfig as Record<string, unknown>).apiPath;
+  if (typeof candidate !== "string") return undefined;
+  const trimmed = candidate.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+/**
+ * Build a copyable connection URL from a connection config. This is the inverse
+ * of {@link parseConnectionUrl}: as the user fills in host / port / username /
+ * password / database (or Oracle service name / SID), it produces the URL that
+ * would round-trip back into those same fields.
+ *
+ * Returns `undefined` for database types where no editable-network URL exists
+ * (local files, hosted/cloud endpoints, or types that maintain URL separately),
+ * so callers can leave any existing input untouched.
+ */
+export function buildConnectionUrlFromConfig(config: UrlBuildConfig): string | undefined {
+  const dbType = config.db_type;
+  if (URL_BUILD_EXCLUDED_TYPES.has(dbType) || URL_BUILD_LOCAL_TYPES.has(dbType) || URL_BUILD_HOSTED_TYPES.has(dbType)) return undefined;
+
+  const host = (config.host ?? "").trim();
+  if (!host || host.includes(",")) return undefined;
+
+  const port = Number(config.port) || Number(SCHEME_PROFILES[dbType]?.defaultPort) || 0;
+  const username = (config.username ?? "").trim();
+  const password = config.password ?? "";
+  const database = (config.database ?? "").trim();
+  const ssl = !!config.ssl;
+
+  // Oracle special-casing: service name and SID both live in the database field,
+  // but produce distinct JDBC thin URLs so the SID is preserved.
+  if (dbType === "oracle") {
+    if (config.oracle_connection_type === "tns") return undefined;
+    if (!database) return undefined;
+    const endpoint = urlBuilderEndpoint(host, port, Number(SCHEME_PROFILES.oracle.defaultPort) || 1521);
+    if (config.oracle_connection_type === "sid") {
+      return `jdbc:oracle:thin:@${endpoint}:${database}`;
+    }
+    return `jdbc:oracle:thin:@//${endpoint}/${database}`;
+  }
+
+  let scheme = URL_BUILD_SCHEME[dbType];
+  if (!scheme) return undefined;
+  if (ssl && (scheme === "http" || scheme === "redis")) {
+    scheme = scheme === "redis" ? "rediss" : "https";
+  }
+  const isHttpScheme = scheme === "http" || scheme === "https";
+  // HTTP(S) datastores use the scheme's well-known port, so the port is omitted
+  // when it matches 80/443; other datastores fall back to their product default.
+  const defaultPort = isHttpScheme ? (scheme === "https" ? 443 : 80) : Number(SCHEME_PROFILES[dbType === "postgres" || dbType === "gaussdb" ? "postgres" : dbType]?.defaultPort) || 0;
+
+  const userinfo = urlBuilderUserinfo(dbType, username, password);
+  const endpoint = urlBuilderEndpoint(host, port, defaultPort);
+
+  let url = `${scheme}://${userinfo}${endpoint}`;
+  if (dbType === "sqlserver") {
+    if (database) url += `/${encodeURIComponent(database)}`;
+    const params = urlBuilderParams(dbType, config.url_params ?? "", ssl);
+    return params ? `${url}${params}` : url;
+  }
+  if (URL_BUILD_NAMED_PATH.has(dbType) && database) {
+    url += `/${encodeURIComponent(database)}`;
+  } else if (scheme === "http" || scheme === "https") {
+    const basePath = urlBuilderBasePath(config.external_config) || database;
+    if (basePath) url += `/${encodeURIComponent(basePath)}`;
+  }
+  const params = urlBuilderParams(dbType, config.url_params ?? "", ssl);
+  return params ? `${url}${params}` : url;
+}

@@ -33,7 +33,7 @@ import { useToast } from "@/composables/useToast";
 import DatabaseIcon from "@/components/icons/DatabaseIcon.vue";
 import * as api from "@/lib/backend/api";
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
-import { applyMeilisearchBasePathToExternalConfig, applyParsedConnectionUrl, normalizeMongoConnectionString, parseConnectionUrl } from "@/lib/connection/connectionUrl";
+import { applyMeilisearchBasePathToExternalConfig, applyParsedConnectionUrl, buildConnectionUrlFromConfig, normalizeMongoConnectionString, parseConnectionUrl } from "@/lib/connection/connectionUrl";
 import { MAX_CONNECT_TIMEOUT_SECS, MAX_QUERY_TIMEOUT_SECS } from "@/lib/connection/timeoutLimits";
 import { buildOracleTnsConnectionString, normalizeOracleTnsAdminPath, parseOracleTnsConnectionString } from "@/lib/connection/oracleTnsConnection";
 import { connectionDeepLinkServiceHydrationValue, parseConnectionDeepLink, parseServiceConnectionUrl, type ConnectionDeepLinkDraft } from "@/lib/connection/connectionDeepLink";
@@ -5130,6 +5130,28 @@ watch(
 watch([() => form.value.db_type, () => form.value.username], () => {
   if (isOracleSysUser(form.value)) form.value.sysdba = true;
 });
+
+/**
+ * Keep the "top URL" input in sync with the edited connection fields. As the
+ * user fills in host / port / username / password / database (or Oracle service
+ * name / SID), the generated URL becomes directly copyable. It is marked as
+ * already-applied so it is purely informational and never re-parsed on save.
+ */
+function syncConnectionUrlFromForm(): void {
+  const url = buildConnectionUrlFromConfig(form.value);
+  if (url === undefined) return;
+  if (url === connectionUrlInput.value) return;
+  connectionUrlInput.value = url;
+  appliedConnectionUrlInput.value = url;
+}
+
+watch(
+  () => [form.value.db_type, form.value.host, form.value.port, form.value.username, form.value.password, form.value.database, form.value.url_params, form.value.ssl, form.value.oracle_connection_type, form.value.external_config],
+  () => {
+    if (open.value) syncConnectionUrlFromForm();
+  },
+  { deep: true },
+);
 
 watch(
   () => connectionConfigSnapshotForVisibleDatabases(),

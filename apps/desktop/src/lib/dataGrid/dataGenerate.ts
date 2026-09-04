@@ -1827,24 +1827,66 @@ function generateTdengineChildTableName(): string {
   return `dbx_gen_${Date.now().toString(36)}_${randomSuffix}`;
 }
 
-export function generateTableData(config: TableGenerateConfig, databaseType?: DatabaseType): GenerateResult {
+/**
+ * Cross-chunk generation state.
+ *
+ * Bulk generation is streamed one chunk at a time so the UI never holds the
+ * full row set in memory. Anything that must stay coherent across chunks
+ * (uniqueness sets, TDengine tag values, the global row index, the TDengine
+ * child-table name) therefore has to live outside the chunk function.
+ */
+export interface TableGenerateChunkState {
+  readonly isTdengineStable: boolean;
+  readonly shouldAddTbname: boolean;
+  readonly tbname: string | null;
+  readonly colNames: string[];
+  readonly targetTable: string;
+  readonly columnList: string;
+  readonly insertPrefix: string;
+  readonly uniqueValues: (Set<string> | null)[];
+  readonly tagValues: Map<string, unknown>;
+  nextIndex: number;
+}
+
+export function createTableGenerateState(config: TableGenerateConfig, databaseType?: DatabaseType): TableGenerateChunkState {
   const isTdengineStable = isTdengineStableGenerate(config, databaseType);
   const hasTbnameColumn = config.columns.some((column) => column.columnName.toLowerCase() === "tbname");
   const shouldAddTbname = isTdengineStable && !hasTbnameColumn;
-  const tdengineChildTableName = shouldAddTbname ? generateTdengineChildTableName() : null;
-  const tagValues = new Map<string, unknown>();
-  const uniqueValues = config.columns.map((column) => (column.generatorParams?.unique ? new Set<string>() : null));
   const colNames = shouldAddTbname ? ["tbname", ...config.columns.map((c) => c.columnName)] : config.columns.map((c) => c.columnName);
-  const rows: unknown[][] = [];
+  const columnList = colNames.map((column) => quoteTableIdentifier(databaseType, column)).join(", ");
+  const targetTable = qualifiedTableName({ databaseType, schema: config.schema, tableName: config.tableName, database: config.database });
+  return {
+    isTdengineStable,
+    shouldAddTbname,
+    tbname: shouldAddTbname ? generateTdengineChildTableName() : null,
+    colNames,
+    targetTable,
+    columnList,
+    insertPrefix: `INSERT INTO ${targetTable} (${columnList}) VALUES`,
+    uniqueValues: config.columns.map((column) => (column.generatorParams?.unique ? new Set<string>() : null)),
+    tagValues: new Map<string, unknown>(),
+    nextIndex: 0,
+  };
+}
 
-  for (let i = 0; i < config.rowCount; i++) {
+/** Generates the next `chunkSize` rows (or whatever remains) and advances `state.nextIndex`. */
+export function generateTableRowsChunk(
+  config: TableGenerateConfig,
+  state: TableGenerateChunkState,
+  chunkSize: number,
+): unknown[][] {
+  const rows: unknown[][] = [];
+  if (chunkSize <= 0) return rows;
+  const total = Math.max(0, config.rowCount);
+  const end = Math.min(total, state.nextIndex + chunkSize);
+  for (let i = state.nextIndex; i < end; i++) {
     const row = config.columns.map((col, columnIndex) => {
-      if (isTdengineStable && col.isTag && tagValues.has(col.columnName)) {
-        return tagValues.get(col.columnName);
+      if (state.isTdengineStable && col.isTag && state.tagValues.has(col.columnName)) {
+        return state.tagValues.get(col.columnName);
       }
       let value: unknown;
       if (col.generatorParams?.unique) {
-        const seen = uniqueValues[columnIndex]!;
+        const seen = state.uniqueValues[columnIndex]!;
         let found = false;
         for (let attempt = 0; attempt < MAX_UNIQUE_GENERATION_ATTEMPTS; attempt++) {
           value = generateValue(col.columnName, col.dataType, col.generatorKey, i, col.generatorParams, col.isAutoIncrement ? null : col.columnDefault);
@@ -1861,29 +1903,79 @@ export function generateTableData(config: TableGenerateConfig, databaseType?: Da
       } else {
         value = generateValue(col.columnName, col.dataType, col.generatorKey, i, col.generatorParams, col.isAutoIncrement ? null : col.columnDefault);
       }
-      if (isTdengineStable && col.isTag) {
-        tagValues.set(col.columnName, value);
+      if (state.isTdengineStable && col.isTag) {
+        state.tagValues.set(col.columnName, value);
       }
       return value;
     });
-    rows.push(shouldAddTbname ? [tdengineChildTableName, ...row] : row);
+    rows.push(state.tbname !== null ? [state.tbname, ...row] : row);
   }
+  state.nextIndex = end;
+  return rows;
+}
 
-  const quotedCols = colNames.map((column) => quoteTableIdentifier(databaseType, column));
-  const targetTable = qualifiedTableName({ databaseType, schema: config.schema, tableName: config.tableName, database: config.database });
-  const columnList = quotedCols.join(", ");
-  const insertPrefix = `INSERT INTO ${targetTable} (${columnList}) VALUES`;
-  const valueRows = rows.map(
-    (row) =>
-      `(${row
-        .map((value, index) => {
-          const configIndex = shouldAddTbname ? index - 1 : index;
-          return formatGeneratedValue(value, databaseType, configIndex >= 0 ? config.columns[configIndex]?.dataType : undefined);
-        })
-        .join(", ")})`,
-  );
-  const statements = databaseType === "oracle" ? buildOracleInsertStatements(targetTable, columnList, valueRows) : supportsGeneratedMultiRowValues(databaseType) ? [`${insertPrefix}\n${valueRows.join(",\n")};`] : valueRows.map((values) => `${insertPrefix} ${values};`);
-  const sql = statements.join("\n");
+export function formatGeneratedRowValues(
+  config: TableGenerateConfig,
+  databaseType: DatabaseType | undefined,
+  state: TableGenerateChunkState,
+  row: unknown[],
+): string {
+  const values = row
+    .map((value, index) => {
+      const configIndex = state.shouldAddTbname ? index - 1 : index;
+      return formatGeneratedValue(value, databaseType, configIndex >= 0 ? config.columns[configIndex]?.dataType : undefined);
+    })
+    .join(", ");
+  return `(${values})`;
+}
 
-  return { columns: colNames, rows, sql, statements };
+export function buildGenerateInsertStatements(
+  databaseType: DatabaseType | undefined,
+  state: TableGenerateChunkState,
+  valueRows: string[],
+  forceSingleRow = false,
+): string[] {
+  if (databaseType === "oracle") {
+    return buildOracleInsertStatements(state.targetTable, state.columnList, valueRows);
+  }
+  if (!supportsGeneratedMultiRowValues(databaseType) || forceSingleRow) {
+    return valueRows.map((values) => `${state.insertPrefix} ${values};`);
+  }
+  if (valueRows.length === 0) return [];
+  return [`${state.insertPrefix}\n${valueRows.join(",\n")};`];
+}
+
+/**
+ * Splits formatted value rows into statement groups that stay within a byte budget.
+ *
+ * Servers reject statements larger than `max_allowed_packet`, so an oversized
+ * multi-row INSERT has to be cut into several statements before it is sent.
+ * Splitting happens after generation (never by rewinding the generator state)
+ * so uniqueness bookkeeping stays intact.
+ */
+export function splitValueRowsByByteBudget(state: TableGenerateChunkState, valueRows: string[], maxBytes: number): string[][] {
+  if (maxBytes <= 0) return valueRows.length > 0 ? [valueRows] : [];
+  const groups: string[][] = [];
+  let current: string[] = [];
+  let currentBytes = 0;
+  for (const values of valueRows) {
+    const bytes = values.length + state.insertPrefix.length + 4;
+    if (current.length > 0 && currentBytes + bytes > maxBytes) {
+      groups.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(values);
+    currentBytes += bytes;
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
+export function generateTableData(config: TableGenerateConfig, databaseType?: DatabaseType): GenerateResult {
+  const state = createTableGenerateState(config, databaseType);
+  const rows = generateTableRowsChunk(config, state, config.rowCount);
+  const valueRows = rows.map((row) => formatGeneratedRowValues(config, databaseType, state, row));
+  const statements = buildGenerateInsertStatements(databaseType, state, valueRows);
+  return { columns: state.colNames, rows, sql: statements.join("\n"), statements };
 }

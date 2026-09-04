@@ -1920,15 +1920,44 @@ export function formatGeneratedRowValues(config: TableGenerateConfig, databaseTy
   return `(${values})`;
 }
 
-export function buildGenerateInsertStatements(databaseType: DatabaseType | undefined, state: TableGenerateChunkState, valueRows: string[], forceSingleRow = false): string[] {
+/**
+ * Builds the INSERT statements for a batch together with the number of value
+ * rows each statement carries.
+ *
+ * `rowsPerStatement` is aligned index-by-index with `statements`, so a caller
+ * that executes the statements can map each returned per-statement result back
+ * to the rows it inserted. This is what makes failed-batch accounting possible
+ * on backends that report failures inside the result array instead of throwing.
+ */
+export function generateInsertBatches(databaseType: DatabaseType | undefined, state: TableGenerateChunkState, valueRows: string[], forceSingleRow = false): { statements: string[]; rowsPerStatement: number[] } {
   if (databaseType === "oracle") {
-    return buildOracleInsertStatements(state.targetTable, state.columnList, valueRows);
+    const statements = buildOracleInsertStatements(state.targetTable, state.columnList, valueRows);
+    return { statements, rowsPerStatement: oracleRowsPerStatement(valueRows, statements) };
   }
   if (!supportsGeneratedMultiRowValues(databaseType) || forceSingleRow) {
-    return valueRows.map((values) => `${state.insertPrefix} ${values};`);
+    return { statements: valueRows.map((values) => `${state.insertPrefix} ${values};`), rowsPerStatement: valueRows.map(() => 1) };
   }
-  if (valueRows.length === 0) return [];
-  return [`${state.insertPrefix}\n${valueRows.join(",\n")};`];
+  if (valueRows.length === 0) return { statements: [], rowsPerStatement: [] };
+  return { statements: [`${state.insertPrefix}\n${valueRows.join(",\n")};`], rowsPerStatement: [valueRows.length] };
+}
+
+/**
+ * Oracle batches INSERT ALL statements `ORACLE_INSERT_ALL_BATCH_SIZE` rows at a
+ * time, so the per-statement row counts have to mirror that chunking.
+ */
+function oracleRowsPerStatement(valueRows: string[], statements: string[]): number[] {
+  if (statements.length === 0) return [];
+  // A single value row is emitted as a plain VALUES statement, not INSERT ALL.
+  if (valueRows.length === 1) return [1];
+  const counts: number[] = [];
+  for (let remaining = valueRows.length; remaining > 0; remaining -= ORACLE_INSERT_ALL_BATCH_SIZE) {
+    counts.push(Math.min(ORACLE_INSERT_ALL_BATCH_SIZE, remaining));
+  }
+  return counts;
+}
+
+export function buildGenerateInsertStatements(databaseType: DatabaseType | undefined, state: TableGenerateChunkState, valueRows: string[], forceSingleRow = false): string[] {
+  return generateInsertBatches(databaseType, state, valueRows, forceSingleRow).statements;
 }
 
 /**

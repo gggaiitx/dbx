@@ -5350,7 +5350,7 @@ export default withEnglishFallback({
     successLabel: "{count} bem-sucedidas",
     failLabel: "{count} falhas",
     totalLabel: "/ {count} linhas",
-    copyAllSql: "Copy All SQL",
+    copySampleSql: "Copiar SQL de exemplo",
     prevStep: "Anterior",
     startInsert: "Start Insert",
     confirm: "Confirmar",

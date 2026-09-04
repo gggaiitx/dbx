@@ -4673,7 +4673,7 @@ export default withEnglishFallback({
     successLabel: "{count} 成功",
     failLabel: "{count} 失敗",
     totalLabel: "/ {count} 條",
-    copyAllSql: "複製全部 SQL",
+    copySampleSql: "複製範例 SQL",
     prevStep: "上一步",
     startInsert: "開始插入",
     confirm: "確定",

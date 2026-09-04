@@ -5,25 +5,26 @@ import { useConnectionStore } from "@/stores/connectionStore";
 import * as api from "@/lib/backend/api";
 import type { ColumnGenerateConfig, GenerateResult, TableGenerateConfig } from "@/lib/dataGrid/dataGenerate";
 import {
-  buildGenerateInsertStatements,
   createTableGenerateState,
   defaultGeneratorParams,
   displayGeneratedValue,
   findGeneratorKey,
   formatGeneratedRowValues,
   formatGeneratedValue,
+  generateInsertBatches,
   generateTableData,
   generateTableRowsChunk,
   splitValueRowsByByteBudget,
   supportsGeneratedMultiRowValues,
   UniqueValueGenerationError,
 } from "@/lib/dataGrid/dataGenerate";
+import { errorMessage, isQueryCanceledError, summarizeBatchResults } from "@/lib/dataGrid/generateInsertAccounting";
 import { qualifiedTableName, quoteTableIdentifier } from "@/lib/table/tableSelectSql";
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import { effectiveDatabaseTypeForConnection } from "@/lib/database/jdbcDialect";
 import { executeWithProductionSqlGuard } from "@/lib/database/productionExecutionGuard";
 import GeneratorParamsPanel from "./params/GeneratorParamsPanel.vue";
-import type { ColumnInfo, TableInfo } from "@/types/database";
+import type { ColumnInfo, QueryResult, TableInfo } from "@/types/database";
 
 import { Dialog, DialogHeader, DialogTitle, DialogScrollContent, DialogContent, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -524,7 +525,13 @@ function generationErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function copyAllSql() {
+/**
+ * Copies the script behind the preview. The preview only materializes a
+ * `PREVIEW_SAMPLE_ROWS` sample, so this is the sample script rather than the
+ * full batch — the label says so, and the insert step generates the remaining
+ * rows incrementally instead of holding them in memory.
+ */
+function copySampleSql() {
   const allSql = allSqlStatements().join("\n\n");
   void navigator.clipboard.writeText(allSql);
 }
@@ -619,7 +626,7 @@ function allSqlStatements(): string[] {
  * count, and each awaited round trip gives the main thread a chance to paint
  * the progress bar.
  */
-async function streamInsertTable(cid: string, db: string, r: GeneratedTableResult, executionId: string, onRows: (insertedRows: number) => void): Promise<{ ok: number; error: string }> {
+async function streamInsertTable(cid: string, db: string, r: GeneratedTableResult, executionId: string, onRows: (insertedRows: number) => void): Promise<{ ok: number; attempted: number; error: string; cancelled: boolean }> {
   const cfg = configs[tableKey(r.schema, r.tableName)];
   const genCfg: TableGenerateConfig = {
     tableName: r.tableName,
@@ -635,44 +642,94 @@ async function streamInsertTable(cid: string, db: string, r: GeneratedTableResul
   const timeoutSecs = normalizeTimeoutSecs(generateOptions.timeoutSecs);
   const batchRows = Math.max(1, Math.floor(generateOptions.batchRows) || DEFAULT_BATCH_ROWS);
   let ok = 0;
+  let attempted = 0;
   let lastError = "";
+  let cancelled = false;
 
-  const run = async (sql: string) => {
-    await api.executeMultiWithProgress(cid, db, sql, () => {}, schema, {
+  const run = (sql: string): Promise<QueryResult[]> =>
+    api.executeMultiWithProgress(cid, db, sql, () => {}, schema, {
       timeoutSecs,
       useTransaction: generateOptions.useTransaction,
       continueOnError: generateOptions.continueOnError,
       executionId,
     });
+
+  /**
+   * Executes one statement batch and folds the outcome into the running totals.
+   * Returns false when the caller has to stop the table.
+   *
+   * The returned per-statement results are inspected instead of trusting the
+   * `await`: several backend paths report a failed statement inside the result
+   * array while still resolving, so counting rows on the await alone would
+   * report failed batches as inserted.
+   */
+  const executeBatch = async (statements: string[], rowsPerStatement: number[]): Promise<boolean> => {
+    const expectedRows = rowsPerStatement.reduce((sum, rows) => sum + rows, 0);
+    attempted += expectedRows;
+    try {
+      const results = await run(statements.join("\n"));
+      // A row-carrying batch that comes back without per-statement results is
+      // unconfirmed; counting it would over-report inserts.
+      if (expectedRows > 0 && (!results || results.length === 0)) {
+        if (!lastError) lastError = "Backend returned no result for the batch";
+        return generateOptions.continueOnError;
+      }
+      const outcome = summarizeBatchResults(results, rowsPerStatement);
+      ok += outcome.insertedRows;
+      if (!outcome.failed) return true;
+      if (!lastError) lastError = outcome.error ?? "Statement failed";
+      console.error("[startInsert] SQL error:", lastError);
+      return generateOptions.continueOnError;
+    } catch (e: unknown) {
+      // Cancelling a transaction or a single-statement round trip surfaces as
+      // an error, so it has to be told apart from a real failure.
+      if (insertCancelled.value || isQueryCanceledError(e)) {
+        cancelled = true;
+        return false;
+      }
+      const msg = errorMessage(e);
+      console.error("[startInsert] SQL error:", msg);
+      if (!lastError) lastError = msg;
+      return generateOptions.continueOnError;
+    }
   };
+
+  const finish = () => ({ ok, attempted, error: cancelled ? "" : lastError, cancelled });
 
   if (generateOptions.truncate) {
     const targetTable = qualifiedTableName({ databaseType: dbType.value, schema: r.schema, tableName: r.tableName, database: props.prefillDatabase });
-    await run(`TRUNCATE TABLE ${targetTable};`);
+    // TRUNCATE carries no generated rows, so it only gates the rest of the run.
+    const truncateOk = await executeBatch([`TRUNCATE TABLE ${targetTable};`], [0]);
+    if (!truncateOk) return finish();
   }
 
   while (state.nextIndex < r.targetRowCount && !insertCancelled.value) {
-    const chunkRows = generateTableRowsChunk(genCfg, state, batchRows);
-    if (chunkRows.length === 0) break;
-    const valueRows = chunkRows.map((row) => formatGeneratedRowValues(genCfg, dbType.value, state, row));
+    let valueRows: string[];
+    try {
+      const chunkRows = generateTableRowsChunk(genCfg, state, batchRows);
+      if (chunkRows.length === 0) break;
+      valueRows = chunkRows.map((row) => formatGeneratedRowValues(genCfg, dbType.value, state, row));
+    } catch (e: unknown) {
+      // Generation failures (unique space exhausted at row 500k, say) must not
+      // discard the rows that earlier chunks already inserted.
+      if (!lastError) lastError = generationErrorMessage(e);
+      return finish();
+    }
+
     for (const group of splitValueRowsByByteBudget(state, valueRows, MAX_BATCH_BYTES)) {
-      const statements = buildGenerateInsertStatements(dbType.value, state, group, forceSingleRow);
+      const { statements, rowsPerStatement } = generateInsertBatches(dbType.value, state, group, forceSingleRow);
       if (statements.length === 0) continue;
-      try {
-        await run(statements.join("\n"));
-        ok += group.length;
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error("[startInsert] SQL error:", msg);
-        if (!lastError) lastError = msg;
-        if (!generateOptions.continueOnError) return { ok, error: lastError };
-      }
+      const keepGoing = await executeBatch(statements, rowsPerStatement);
+      onRows(ok);
+      if (!keepGoing) return finish();
     }
     onRows(ok);
     // Yield so the progress bar repaints between chunks.
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
-  return { ok, error: lastError };
+
+  if (insertCancelled.value) cancelled = true;
+  return finish();
 }
 
 async function startInsert() {
@@ -708,29 +765,34 @@ async function startInsert() {
               totalRows: r.targetRowCount,
               elapsedMs: 0,
             };
-            let outcome: { ok: number; error: string };
+            let outcome: { ok: number; attempted: number; error: string; cancelled: boolean };
+            let insertedSoFar = 0;
             try {
               outcome = await streamInsertTable(cid, db, r, executionId, (insertedRows) => {
+                insertedSoFar = insertedRows;
                 if (insertProgress.value) {
                   insertProgress.value = { ...insertProgress.value, insertedRows, elapsedMs: Math.round(performance.now() - startedAt) };
                 }
               });
             } catch (e: unknown) {
-              outcome = { ok: 0, error: e instanceof Error ? e.message : String(e) };
+              // Safety net: even an unexpected throw must not hide the rows that
+              // earlier batches already inserted.
+              const wasCancelled = insertCancelled.value || isQueryCanceledError(e);
+              outcome = { ok: insertedSoFar, attempted: insertedSoFar, error: wasCancelled ? "" : errorMessage(e), cancelled: wasCancelled };
             }
-            const cancelled = insertCancelled.value && !outcome.error;
+            const failedRows = Math.max(0, Math.max(outcome.attempted, outcome.ok) - outcome.ok);
             perTable.push({
               table: r.tableName,
               total: r.targetRowCount,
               ok: outcome.ok,
-              err: Math.max(0, r.targetRowCount - outcome.ok),
+              err: failedRows,
               error: outcome.error || undefined,
-              cancelled: cancelled || undefined,
+              cancelled: outcome.cancelled || undefined,
             });
             if (outcome.ok > 0) {
               store.invalidateMetadataCache(cid, db, r.schema || props.prefillSchema || undefined, r.tableName);
             }
-            if ((outcome.error && !generateOptions.continueOnError) || insertCancelled.value) stopAll = true;
+            if ((outcome.error && !generateOptions.continueOnError) || outcome.cancelled) stopAll = true;
           }
         } finally {
           activeExecutionId = null;
@@ -1205,7 +1267,7 @@ async function onFileSelected(event: Event) {
             </Button>
           </template>
           <template v-else-if="currentStep === 'preview' && generatedResults.length > 0">
-            <Button variant="outline" size="sm" class="h-7 text-xs" @click="copyAllSql">{{ t("dataGenerate.copyAllSql") }}</Button>
+            <Button variant="outline" size="sm" class="h-7 text-xs" @click="copySampleSql">{{ t("dataGenerate.copySampleSql") }}</Button>
           </template>
         </div>
         <div class="flex items-center gap-2">

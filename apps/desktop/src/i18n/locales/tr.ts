@@ -5627,7 +5627,7 @@ export default withEnglishFallback({
     successLabel: "{count} başarılı",
     failLabel: "{count} başarısız",
     totalLabel: "/ {count} girdi",
-    copyAllSql: "Tüm SQL'i Kopyala",
+    copySampleSql: "Örnek SQL'i kopyala",
     prevStep: "Geri",
     startInsert: "Eklemeyi Başlat",
     confirm: "Onayla",

@@ -5047,7 +5047,7 @@ export default withEnglishFallback({
     successLabel: "{count}개 성공",
     failLabel: "{count}개 실패",
     totalLabel: "/ {count}개 항목",
-    copyAllSql: "모든 SQL 복사",
+    copySampleSql: "샘플 SQL 복사",
     prevStep: "이전",
     startInsert: "삽입 시작",
     confirm: "확인",

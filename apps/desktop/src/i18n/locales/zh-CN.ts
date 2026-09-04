@@ -5615,7 +5615,7 @@ export default withEnglishFallback({
     successLabel: "{count} 成功",
     failLabel: "{count} 失败",
     totalLabel: "/ {count} 条",
-    copyAllSql: "复制全部 SQL",
+    copySampleSql: "复制样例 SQL",
     prevStep: "上一步",
     startInsert: "开始插入",
     confirm: "确定",

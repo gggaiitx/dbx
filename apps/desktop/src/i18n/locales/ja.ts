@@ -5386,7 +5386,7 @@ export default withEnglishFallback({
     successLabel: "{count}件成功",
     failLabel: "{count}件失敗",
     totalLabel: "/ {count}エントリ",
-    copyAllSql: "すべてのSQLをコピー",
+    copySampleSql: "サンプル SQL をコピー",
     prevStep: "戻る",
     startInsert: "挿入開始",
     confirm: "確認",

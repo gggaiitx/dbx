@@ -5631,7 +5631,7 @@ export default {
     successLabel: "{count} succeeded",
     failLabel: "{count} failed",
     totalLabel: "/ {count} entries",
-    copyAllSql: "Copy All SQL",
+    copySampleSql: "Copy sample SQL",
     prevStep: "Previous",
     startInsert: "Start Insert",
     confirm: "Confirm",

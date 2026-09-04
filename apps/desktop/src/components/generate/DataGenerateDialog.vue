@@ -619,13 +619,7 @@ function allSqlStatements(): string[] {
  * count, and each awaited round trip gives the main thread a chance to paint
  * the progress bar.
  */
-async function streamInsertTable(
-  cid: string,
-  db: string,
-  r: GeneratedTableResult,
-  executionId: string,
-  onRows: (insertedRows: number) => void,
-): Promise<{ ok: number; error: string }> {
+async function streamInsertTable(cid: string, db: string, r: GeneratedTableResult, executionId: string, onRows: (insertedRows: number) => void): Promise<{ ok: number; error: string }> {
   const cfg = configs[tableKey(r.schema, r.tableName)];
   const genCfg: TableGenerateConfig = {
     tableName: r.tableName,
@@ -1079,14 +1073,7 @@ async function onFileSelected(event: Event) {
                   </div>
                   <div class="flex items-center gap-3 rounded-md bg-muted/20 px-3 py-2">
                     <Label class="text-xs shrink-0">{{ t("dataGenerate.rowCount") }}:</Label>
-                    <Input
-                      v-model.number="activeCfg.rowCount"
-                      type="number"
-                      min="0"
-                      :max="MAX_ROW_COUNT"
-                      class="h-7 w-28 text-xs"
-                      @blur="activeCfg.rowCount = normalizeRowCount(activeCfg.rowCount)"
-                    />
+                    <Input v-model.number="activeCfg.rowCount" type="number" min="0" :max="MAX_ROW_COUNT" class="h-7 w-28 text-xs" @blur="activeCfg.rowCount = normalizeRowCount(activeCfg.rowCount)" />
                   </div>
                   <p v-if="activeCfg.rowCount > LARGE_ROW_COUNT_HINT" class="px-1 text-[11px] leading-relaxed text-muted-foreground">
                     {{ t("dataGenerate.largeRowCountHint", { count: activeCfg.rowCount.toLocaleString() }) }}
@@ -1272,14 +1259,7 @@ async function onFileSelected(event: Event) {
           </label>
           <div class="flex items-center gap-3">
             <Label class="text-xs shrink-0">{{ t("dataGenerate.timeoutSecs") }}:</Label>
-            <Input
-              v-model.number="generateOptions.timeoutSecs"
-              type="number"
-              min="0"
-              max="86400"
-              class="h-7 w-24 text-xs"
-              @blur="generateOptions.timeoutSecs = normalizeTimeoutSecs(generateOptions.timeoutSecs)"
-            />
+            <Input v-model.number="generateOptions.timeoutSecs" type="number" min="0" max="86400" class="h-7 w-24 text-xs" @blur="generateOptions.timeoutSecs = normalizeTimeoutSecs(generateOptions.timeoutSecs)" />
           </div>
           <p class="text-[11px] leading-relaxed text-muted-foreground">{{ t("dataGenerate.timeoutHint") }}</p>
           <div class="flex items-center gap-3">

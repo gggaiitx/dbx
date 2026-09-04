@@ -1870,11 +1870,7 @@ export function createTableGenerateState(config: TableGenerateConfig, databaseTy
 }
 
 /** Generates the next `chunkSize` rows (or whatever remains) and advances `state.nextIndex`. */
-export function generateTableRowsChunk(
-  config: TableGenerateConfig,
-  state: TableGenerateChunkState,
-  chunkSize: number,
-): unknown[][] {
+export function generateTableRowsChunk(config: TableGenerateConfig, state: TableGenerateChunkState, chunkSize: number): unknown[][] {
   const rows: unknown[][] = [];
   if (chunkSize <= 0) return rows;
   const total = Math.max(0, config.rowCount);
@@ -1914,12 +1910,7 @@ export function generateTableRowsChunk(
   return rows;
 }
 
-export function formatGeneratedRowValues(
-  config: TableGenerateConfig,
-  databaseType: DatabaseType | undefined,
-  state: TableGenerateChunkState,
-  row: unknown[],
-): string {
+export function formatGeneratedRowValues(config: TableGenerateConfig, databaseType: DatabaseType | undefined, state: TableGenerateChunkState, row: unknown[]): string {
   const values = row
     .map((value, index) => {
       const configIndex = state.shouldAddTbname ? index - 1 : index;
@@ -1929,12 +1920,7 @@ export function formatGeneratedRowValues(
   return `(${values})`;
 }
 
-export function buildGenerateInsertStatements(
-  databaseType: DatabaseType | undefined,
-  state: TableGenerateChunkState,
-  valueRows: string[],
-  forceSingleRow = false,
-): string[] {
+export function buildGenerateInsertStatements(databaseType: DatabaseType | undefined, state: TableGenerateChunkState, valueRows: string[], forceSingleRow = false): string[] {
   if (databaseType === "oracle") {
     return buildOracleInsertStatements(state.targetTable, state.columnList, valueRows);
   }

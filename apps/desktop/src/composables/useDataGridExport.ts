@@ -48,6 +48,7 @@ const FORMAT_META: Record<string, { ext: string; label: string }> = {
   xlsx: { ext: "xlsx", label: "Excel" },
   json: { ext: "json", label: "JSON" },
   markdown: { ext: "md", label: "Markdown" },
+  html: { ext: "html", label: "HTML" },
   sql: { ext: "sql", label: "SQL" },
   txt: { ext: "txt", label: "Text" },
 };
@@ -449,6 +450,10 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
 
   function currentXlsxSheetName(): string {
     return currentResultLabel?.value || tableMeta.value?.tableName || "Export";
+  }
+
+  function currentExportTitle(): string {
+    return tableMeta.value?.tableName || currentResultLabel?.value || "Query Result";
   }
 
   function currentExportSql(): string | undefined {
@@ -975,6 +980,50 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
         const result = await resultToExport(rowIds);
         const content = formatTsv(result.columns, result.rows);
         await saveTextFile(content, exportFileName(tableMeta.value?.tableName || "export", "txt", { preferFallback: true }), "Text", "txt");
+        toast(t("grid.exported"));
+      } catch (e: any) {
+        toast(t("grid.exportFailed", { message: translateBackendError(t, e) }), 5000);
+      }
+    });
+  }
+
+  async function exportHtml(rowIds?: number[]) {
+    await runExclusiveExport(async () => {
+      try {
+        let outputPath = exportFileName("export", "html");
+        if (isTauriRuntime()) {
+          const { save } = await import("@tauri-apps/plugin-dialog");
+          const path = await save({
+            defaultPath: outputPath,
+            filters: [{ name: "HTML", extensions: ["html"] }],
+          });
+          if (!path) return;
+          outputPath = path as string;
+        }
+        const result = await resultToExport(rowIds);
+        await api.exportQueryResultHtml(outputPath, currentExportTitle(), result.columns, result.rows);
+        toast(t("grid.exported"));
+      } catch (e: any) {
+        toast(t("grid.exportFailed", { message: translateBackendError(t, e) }), 5000);
+      }
+    });
+  }
+
+  async function exportCurrentPageHtml() {
+    await runExclusiveExport(async () => {
+      try {
+        let outputPath = exportFileName("export-page", "html", { page: true });
+        if (isTauriRuntime()) {
+          const { save } = await import("@tauri-apps/plugin-dialog");
+          const path = await save({
+            defaultPath: outputPath,
+            filters: [{ name: "HTML", extensions: ["html"] }],
+          });
+          if (!path) return;
+          outputPath = path as string;
+        }
+        const result = await resultToExport(undefined, undefined, false);
+        await api.exportQueryResultHtml(outputPath, currentExportTitle(), result.columns, result.rows);
         toast(t("grid.exported"));
       } catch (e: any) {
         toast(t("grid.exportFailed", { message: translateBackendError(t, e) }), 5000);
@@ -1574,6 +1623,8 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     exportCurrentPageJson,
     exportMarkdown,
     exportCurrentPageMarkdown,
+    exportHtml,
+    exportCurrentPageHtml,
     exportTxt,
     exportCurrentPageTxt,
     exportXlsx,

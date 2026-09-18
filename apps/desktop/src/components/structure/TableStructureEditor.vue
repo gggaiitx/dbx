@@ -5411,6 +5411,7 @@ watch(
 }
 
 .structure-ddl-editor :deep(.cm-scroller::-webkit-scrollbar-thumb) {
+  background: rgba(82, 82, 82, 0.3);
   background: color-mix(in oklab, var(--foreground) 30%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
@@ -5418,6 +5419,7 @@ watch(
 }
 
 .structure-ddl-editor :deep(.cm-scroller::-webkit-scrollbar-thumb:hover) {
+  background: rgba(82, 82, 82, 0.48);
   background: color-mix(in oklab, var(--foreground) 48%, transparent);
   border-width: 2px;
   background-clip: padding-box;
@@ -5439,6 +5441,7 @@ watch(
 }
 
 .structure-card-scroller::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 82, 0.3);
   background: color-mix(in oklab, var(--foreground) 30%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
@@ -5446,6 +5449,7 @@ watch(
 }
 
 .structure-card-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 82, 0.48);
   background: color-mix(in oklab, var(--foreground) 48%, transparent);
   border-width: 2px;
   background-clip: padding-box;
@@ -5456,6 +5460,7 @@ watch(
 }
 
 .structure-table-scroller::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 82, 0.3);
   background: color-mix(in oklab, var(--foreground) 30%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
@@ -5463,6 +5468,7 @@ watch(
 }
 
 .structure-table-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 82, 0.48);
   background: color-mix(in oklab, var(--foreground) 48%, transparent);
   border-width: 2px;
   background-clip: padding-box;
@@ -5483,6 +5489,7 @@ watch(
   height: 4px;
   min-width: 24px;
   border-radius: 999px;
+  background: rgba(82, 82, 82, 0.3);
   background: color-mix(in oklab, var(--foreground) 30%, transparent);
   transition:
     top 120ms ease,
@@ -5494,6 +5501,7 @@ watch(
 .structure-horizontal-scrollbar--dragging .structure-horizontal-scrollbar__thumb {
   top: 2px;
   height: 6px;
+  background: rgba(82, 82, 82, 0.48);
   background: color-mix(in oklab, var(--foreground) 48%, transparent);
 }
 
@@ -5559,6 +5567,7 @@ watch(
 }
 
 .structure-ddl-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 82, 0.3);
   background: color-mix(in oklab, var(--foreground) 30%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
@@ -5566,8 +5575,24 @@ watch(
 }
 
 .structure-ddl-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 82, 0.48);
   background: color-mix(in oklab, var(--foreground) 48%, transparent);
   border-width: 2px;
   background-clip: padding-box;
+}
+
+html.dbx-legacy-webview.dark .structure-ddl-editor .cm-scroller::-webkit-scrollbar-thumb,
+html.dbx-legacy-webview.dark .structure-card-scroller::-webkit-scrollbar-thumb,
+html.dbx-legacy-webview.dark .structure-table-scroller::-webkit-scrollbar-thumb,
+html.dbx-legacy-webview.dark .structure-horizontal-scrollbar__thumb {
+  background: rgba(212, 212, 216, 0.3);
+}
+
+html.dbx-legacy-webview.dark .structure-ddl-editor .cm-scroller::-webkit-scrollbar-thumb:hover,
+html.dbx-legacy-webview.dark .structure-card-scroller::-webkit-scrollbar-thumb:hover,
+html.dbx-legacy-webview.dark .structure-table-scroller::-webkit-scrollbar-thumb:hover,
+html.dbx-legacy-webview.dark .structure-horizontal-scrollbar:hover .structure-horizontal-scrollbar__thumb,
+html.dbx-legacy-webview.dark .structure-horizontal-scrollbar--dragging .structure-horizontal-scrollbar__thumb {
+  background: rgba(212, 212, 216, 0.48);
 }
 </style>

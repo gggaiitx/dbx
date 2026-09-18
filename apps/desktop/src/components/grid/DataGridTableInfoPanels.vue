@@ -228,6 +228,7 @@ const { t } = useI18n();
 }
 
 .table-info-scroller::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 82, 0.3);
   background: color-mix(in oklab, var(--foreground) 30%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
@@ -235,8 +236,17 @@ const { t } = useI18n();
 }
 
 .table-info-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 82, 0.48);
   background: color-mix(in oklab, var(--foreground) 48%, transparent);
   border-width: 2px;
   background-clip: padding-box;
+}
+
+html.dbx-legacy-webview.dark .table-info-scroller::-webkit-scrollbar-thumb {
+  background: rgba(212, 212, 216, 0.3);
+}
+
+html.dbx-legacy-webview.dark .table-info-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 212, 216, 0.48);
 }
 </style>

@@ -427,6 +427,9 @@ export const inspectExternalSqlFile = forward("inspectExternalSqlFile");
 export const writeExternalSqlFile = forward("writeExternalSqlFile");
 export const saveExternalSqlFile = forward("saveExternalSqlFile");
 export const listSqlFilesInFolder = forward("listSqlFilesInFolder");
+export const globalSearch = forward("globalSearch");
+export const loadGlobalSearchSettings = forward("loadGlobalSearchSettings");
+export const saveGlobalSearchSettings = forward("saveGlobalSearchSettings");
 export const createSqlFileInFolder = forward("createSqlFileInFolder");
 export const renameSqlFileInFolder = forward("renameSqlFileInFolder");
 export const deleteSqlFileInFolder = forward("deleteSqlFileInFolder");
@@ -1066,6 +1069,9 @@ export type {
   QueryResultExportRequest,
   AgentEvent,
   SqlFileEntry,
+  GlobalSearchRequest,
+  GlobalSearchMatch,
+  GlobalSearchSettings,
 } from "@/lib/backend/tauri";
 
 // MQTT

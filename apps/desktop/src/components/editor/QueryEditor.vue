@@ -251,6 +251,7 @@ const props = defineProps<{
   canExplain?: boolean;
   initialViewport?: { scrollTop: number; scrollLeft: number };
   initialSelection?: { anchor: number; head: number };
+  revealRequest?: { id: number; line: number; column?: number };
   statementExecutionMarkers?: StatementExecutionMarker[];
 }>();
 
@@ -296,6 +297,7 @@ const emit = defineEmits<{
   viewportChange: [viewport: { scrollTop: number; scrollLeft: number }, tabId?: string];
   selectionStateChange: [selection: { anchor: number; head: number }];
   editorStateFlushed: [];
+  editorRevealConsumed: [];
   sendSelectionToAi: [sql: string];
 }>();
 
@@ -7280,6 +7282,7 @@ onMounted(async () => {
 
   restoreEditorSelection(props.initialSelection, !props.initialViewport);
   restoreEditorViewport();
+  performEditorReveal();
   syncContextMenuState(view.value);
   emit("previewChangesAvailable", !!previewContextSql.value);
   syncEditorFontCssVars(liveFontSize.value, initialSettings.fontFamily);
@@ -7459,6 +7462,16 @@ watch(
     restoreEditorSelection(selection, !props.initialViewport);
   },
   { deep: true },
+);
+
+// A content-search jump. Fires on id change (a new or reused tab, or a repeat
+// click on the same result), and on mount when the request is already pending.
+watch(
+  () => props.revealRequest?.id,
+  (id, previousId) => {
+    if (!id || id === previousId) return;
+    performEditorReveal();
+  },
 );
 
 watch(
@@ -7828,6 +7841,28 @@ function restoreEditorSelection(selection = props.initialSelection ?? latestSele
   const normalizedSelection = normalizedEditorSelection(selection, props.modelValue.length);
   if (!view.value || !normalizedSelection) return;
   view.value.dispatch({ selection: normalizedSelection, scrollIntoView });
+}
+
+/** Move cursor/scroll to a 1-based line/column, e.g. from a global content-search match. */
+function revealEditorSelection(line: number, column?: number) {
+  const currentView = view.value;
+  const EditorSelection = codeMirrorEditorSelection;
+  if (!currentView || !EditorSelection) return;
+  const doc = currentView.state.doc;
+  const targetLine = Math.max(1, Math.min(line ?? 1, doc.lines));
+  const lineOffset = doc.line(targetLine).from;
+  const charColumn = Math.max(1, column ?? 1);
+  const offset = Math.min(lineOffset + charColumn - 1, doc.length);
+  currentView.dispatch({ selection: EditorSelection.cursor(offset), scrollIntoView: true });
+  focusEditorView(currentView);
+}
+
+/** Consume a pending reveal request (fires once per new id / on mount). */
+function performEditorReveal() {
+  const request = props.revealRequest;
+  if (!request || !view.value) return;
+  revealEditorSelection(request.line, request.column);
+  emit("editorRevealConsumed");
 }
 
 function restoreEditorFocus() {

@@ -236,6 +236,12 @@ const emit = defineEmits<ContentAreaSurfaceEmits>();
 const { t, locale } = useI18n();
 const queryStore = useQueryStore();
 const connectionStore = useConnectionStore();
+/** Clear a consumed editor reveal request so a later normal tab re-visit doesn't re-jump. */
+function clearEditorRevealRequest(tab: { editorRevealRequest?: unknown }): void {
+  if (tab.editorRevealRequest !== undefined) {
+    tab.editorRevealRequest = undefined;
+  }
+}
 provideTabUiState(() => {
   const tab = props.activeTab;
   const mode = tab.mode;
@@ -1477,6 +1483,7 @@ defineExpose({
               :statement-execution-markers="activeStatementExecutionMarkers"
               :initial-viewport="activeTab.editorViewport"
               :initial-selection="activeTab.editorSelection"
+              :reveal-request="activeTab.editorRevealRequest"
               :force-word-wrap="activeTab.forceWordWrap"
               enable-explain-shortcut
               :can-explain="!activeTab.isExecuting && !activeTab.isExplaining && !!executableSql.trim()"
@@ -1488,6 +1495,7 @@ defineExpose({
               @viewport-change="(viewport, tabId) => emit('editorViewportChange', tabId ?? activeTab.id, viewport)"
               @selection-state-change="emit('editorSelectionStateChange', activeTab.id, $event)"
               @editor-state-flushed="emit('editorStateFlushed', activeTab.id)"
+              @editor-reveal-consumed="clearEditorRevealRequest(activeTab)"
               @format-error="emit('formatError', activeTab.id)"
               @execute="emit('execute', activeTab.id, $event)"
               @execute-in-new-result-tab="emit('executeInNewResultTab', activeTab.id, $event)"

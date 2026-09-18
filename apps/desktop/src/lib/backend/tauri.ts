@@ -789,6 +789,19 @@ export async function saveEditorSettings(settings: unknown): Promise<void> {
   return invoke("save_editor_settings", { settings });
 }
 
+export interface GlobalSearchSettings {
+  roots: string[];
+  extensions: string[];
+}
+
+export function loadGlobalSearchSettings(): Promise<GlobalSearchSettings | null> {
+  return invoke("load_global_search_settings");
+}
+
+export function saveGlobalSearchSettings(settings: GlobalSearchSettings): Promise<void> {
+  return invoke("save_global_search_settings", { settings });
+}
+
 export interface BackgroundImageInfo {
   storedPath: string;
   fileName: string;
@@ -1077,6 +1090,31 @@ export async function renameSqlFileInFolder(rootPath: string, filePath: string, 
 
 export async function deleteSqlFileInFolder(rootPath: string, filePath: string): Promise<void> {
   return invoke("delete_sql_file_in_folder", { rootPath, filePath });
+}
+
+export interface GlobalSearchRequest {
+  roots: string[];
+  query: string;
+  extensions?: string[];
+  caseSensitive?: boolean;
+  useRegex?: boolean;
+  wholeWord?: boolean;
+  limit?: number;
+}
+
+export interface GlobalSearchMatch {
+  path: string;
+  fileName: string;
+  /** 1-based line number. */
+  line: number;
+  /** 1-based char column within the line (for CodeMirror). */
+  column: number;
+  matchText: string;
+  lineText: string;
+}
+
+export async function globalSearch(request: GlobalSearchRequest): Promise<GlobalSearchMatch[]> {
+  return invoke("global_search", { request });
 }
 
 // --- AI Conversations ---

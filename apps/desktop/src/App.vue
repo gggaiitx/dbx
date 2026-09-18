@@ -91,6 +91,7 @@ import {
   isObjectSourceSaveShortcutTarget,
   isOpenSettingsShortcut,
   isQuickOpenShortcut,
+  isGlobalSearchShortcut,
   isResetZoomShortcut,
   isRefreshDataShortcut,
   isSaveShortcut,
@@ -342,6 +343,7 @@ const showDriverStore = computed(() => driverStoreTabOpen.value && driverStoreAc
 const showPluginCenter = computed(() => pluginCenterTabOpen.value && pluginCenterActive.value);
 const showSettingsPage = computed(() => Boolean(settingsPageTabOpen.value && settingsStore.settingsPageActive));
 const showQuickOpen = ref(false);
+const quickOpenForceContent = ref(false);
 const showTabSwitcher = ref(false);
 const tabSwitcherIndex = ref(0);
 const agentDriverUpdateCount = ref(0);
@@ -2935,6 +2937,20 @@ async function handleQuickOpenSelect(item: any) {
   const queryStore = useQueryStore();
 
   // Handle SQL file types first — they don't require a database connection
+  if (item.type === "content_match" && item.filePath) {
+    try {
+      const snapshot = await api.readExternalSqlFileSnapshot(item.filePath, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb));
+      const target = resolveExternalSqlFileTarget(item.filePath, (savedConnectionId) => !!connectionStore.getConfig(savedConnectionId), unassociatedExternalSqlFileTarget());
+      queryStore.openExternalSqlFile(target.connectionId, target.database, item.filePath, snapshot.content, snapshot.version, target.catalog, target.schema, { line: item.line ?? 1, column: item.column });
+    } catch (e: any) {
+      toast(
+        externalSqlFileOpenErrorMessage(e, (key, params) => t(key, params)),
+        5000,
+      );
+    }
+    return;
+  }
+
   if (item.type === "sql_file" && item.filePath) {
     try {
       const snapshot = await api.readExternalSqlFileSnapshot(item.filePath, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb));
@@ -3176,6 +3192,14 @@ function handleTabSwitcherKeydownCapture(e: KeyboardEvent) {
   tabSwitcherKeyboard.handleKeydownCapture(e);
 }
 
+function handleGlobalSearchKeydownCapture(e: KeyboardEvent) {
+  if (e.defaultPrevented || !isGlobalSearchShortcut(e, settingsStore.editorSettings.shortcuts)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  quickOpenForceContent.value = true;
+  showQuickOpen.value = true;
+}
+
 function handleAuxiliarySearchKeydownCapture(e: KeyboardEvent) {
   if (e.defaultPrevented || !isFocusSearchShortcut(e, settingsStore.editorSettings.shortcuts)) return;
   const target = e.target instanceof Element ? e.target : document.activeElement instanceof Element ? document.activeElement : null;
@@ -3331,6 +3355,14 @@ async function handleKeydown(e: KeyboardEvent) {
   if (isQuickOpenShortcut(e, shortcuts)) {
     e.preventDefault();
     e.stopPropagation();
+    quickOpenForceContent.value = false;
+    showQuickOpen.value = true;
+    return;
+  }
+  if (isGlobalSearchShortcut(e, shortcuts)) {
+    e.preventDefault();
+    e.stopPropagation();
+    quickOpenForceContent.value = true;
     showQuickOpen.value = true;
     return;
   }
@@ -3639,6 +3671,7 @@ onMounted(async () => {
   applyTheme();
   void applyUiScale(settingsStore.editorSettings.uiScale);
   window.addEventListener("keydown", handleNativeSelectAll, true);
+  window.addEventListener("keydown", handleGlobalSearchKeydownCapture, true);
   window.addEventListener("keydown", handleTabSwitcherKeydownCapture, true);
   window.addEventListener("keydown", handleAuxiliarySearchKeydownCapture, true);
   window.addEventListener("keydown", handleKeydown);
@@ -3722,6 +3755,7 @@ onUnmounted(() => {
     clearInterval(updateCheckTimer);
   }
   window.removeEventListener("keydown", handleNativeSelectAll, true);
+  window.removeEventListener("keydown", handleGlobalSearchKeydownCapture, true);
   window.removeEventListener("keydown", handleTabSwitcherKeydownCapture, true);
   window.removeEventListener("keydown", handleAuxiliarySearchKeydownCapture, true);
   window.removeEventListener("keydown", handleKeydown);
@@ -4203,7 +4237,7 @@ onUnmounted(() => {
         <ExternalSqlFileChangeDialog :prompt="externalSqlFilePrompt" @decide="externalSqlFileChanges.resolvePrompt" />
         <CloseActionPromptDialog v-if="isDesktop && showCloseActionPrompt" :open="showCloseActionPrompt" @update:open="handleCloseActionPromptOpenChange" @quit="chooseQuit" @minimize="chooseMinimize" />
         <AiRunsClosePromptDialog v-if="isDesktop && showAiRunsClosePrompt" v-model:open="showAiRunsClosePrompt" :count="blockingAiRunCount" @cancel="cancelPendingAppClose" @quit="confirmQuitWithActiveAiRuns" />
-        <QuickOpenDialog :open="showQuickOpen" @update:open="showQuickOpen = $event" @select="handleQuickOpenSelect" />
+        <QuickOpenDialog :open="showQuickOpen" :initial-content-mode="quickOpenForceContent" @update:open="showQuickOpen = $event" @select="handleQuickOpenSelect" />
         <TabSwitcherDialog :open="showTabSwitcher" :tabs="tabSwitcherTabs" :selected-index="tabSwitcherIndex" :shortcut-hint="tabSwitcherShortcutHint" @update:open="handleTabSwitcherOpenChange" @update:selected-index="tabSwitcherIndex = $event" @select="handleTabSwitcherSelect" />
       </div>
       <Teleport to="body">

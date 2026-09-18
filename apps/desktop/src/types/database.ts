@@ -1660,6 +1660,12 @@ export interface QueryTab {
     anchor: number;
     head: number;
   };
+  /** Ephemeral request to move the cursor/scrolling to a specific line/column (e.g. global content search jump). */
+  editorRevealRequest?: {
+    id: number;
+    line: number;
+    column?: number;
+  };
   executionId?: string;
   /** Ephemeral result run targeted by the current execution; null means a new run is being produced. */
   executingResultRunId?: string | null;

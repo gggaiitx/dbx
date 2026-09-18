@@ -2543,6 +2543,47 @@ export async function deleteSqlFileInFolder(_rootPath: string, _filePath: string
   throw new Error("Managing SQL files in folders is only available in the desktop app");
 }
 
+export interface GlobalSearchRequest {
+  roots: string[];
+  query: string;
+  extensions?: string[];
+  caseSensitive?: boolean;
+  useRegex?: boolean;
+  wholeWord?: boolean;
+  limit?: number;
+}
+
+export interface GlobalSearchMatch {
+  path: string;
+  fileName: string;
+  line: number;
+  column: number;
+  matchText: string;
+  lineText: string;
+}
+
+export async function globalSearch(_request: GlobalSearchRequest): Promise<GlobalSearchMatch[]> {
+  throw new Error("Global content search is only available in the desktop app");
+}
+
+export interface GlobalSearchSettings {
+  roots: string[];
+  extensions: string[];
+}
+
+export async function loadGlobalSearchSettings(): Promise<GlobalSearchSettings | null> {
+  try {
+    const raw = globalThis.localStorage?.getItem("dbx-global-search-settings-disk");
+    return raw ? (JSON.parse(raw) as GlobalSearchSettings) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveGlobalSearchSettings(settings: GlobalSearchSettings): Promise<void> {
+  globalThis.localStorage?.setItem("dbx-global-search-settings-disk", JSON.stringify(settings));
+}
+
 // ---------------------------------------------------------------------------
 // Data Transfer
 // ---------------------------------------------------------------------------

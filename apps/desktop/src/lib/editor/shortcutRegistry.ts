@@ -46,6 +46,7 @@ export type ShortcutActionId =
   | "closeOtherTabs"
   | "focusSearch"
   | "quickOpen"
+  | "globalSearch"
   | "toggleAiPanel"
   | "navigateTabHistoryBack"
   | "navigateTabHistoryForward"
@@ -409,6 +410,12 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     labelKey: "settings.shortcutQuickOpen",
     scope: "global",
     defaultShortcut: "Mod+P",
+  },
+  {
+    id: "globalSearch",
+    labelKey: "settings.shortcutGlobalSearch",
+    scope: "global",
+    defaultShortcut: "Mod+Shift+F",
   },
   {
     id: "toggleAiPanel",

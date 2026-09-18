@@ -6,6 +6,7 @@ import { DEFAULT_QUERY_TIMEOUT_SECS } from "@/lib/connection/timeoutLimits";
 import type {
   ColumnInfo,
   CompletionAssistantCandidate,
+  CompletionAssistantMatchMode,
   CompletionAssistantObjectKind,
   CompletionAssistantRequest,
   ConnectionConfig,
@@ -145,7 +146,7 @@ import { completionSchemasFromTree, completionTablesFromTree } from "@/lib/metad
 import { kvRootNodeLabel } from "@/lib/kv/kvRootPresentation";
 import { etcdPermissionsAllowKey } from "@/lib/etcd/keyPermissions";
 import { REDIS_SCAN_PAGE_SIZE_DEFAULT } from "@/lib/redis/redisKeyPattern";
-import { normalizeRedisDatabaseAliases, redisDatabaseAlias, redisDatabaseLabel } from "@/lib/redis/redisDatabaseAlias";
+import { limitRedisDatabaseList, normalizeRedisDatabaseAliases, redisDatabaseAlias, redisDatabaseLabel } from "@/lib/redis/redisDatabaseAlias";
 import { normalizeRedisKeyTemplates } from "@/lib/redis/redisKeyTemplates";
 import { appendAgentDriverUpdateHint, connectionUsesSsh, hasAgentDriverUpdate, hasInstalledAgentVersion, type AgentDriverInstallState } from "@/lib/connection/agentDriverInstallHint";
 import { appendConnectionErrorHints, isMysqlMissingPasswordFailure, isSqliteMissingEncryptionPasswordFailure } from "@/lib/connection/connectionErrorHints";
@@ -4334,8 +4335,8 @@ export const useConnectionStore = defineStore("connection", () => {
     invalidateConnectionMetadataLifetime(connectionId, database);
   }
 
-  async function ensureConnected(connectionId: string, options: { activate?: boolean; verifyHealth?: boolean } = {}) {
-    if (connectedIds.value.has(connectionId)) {
+  async function ensureConnected(connectionId: string, options: { activate?: boolean; verifyHealth?: boolean; forceReconnect?: boolean } = {}) {
+    if (!options.forceReconnect && connectedIds.value.has(connectionId)) {
       // Pure navigation can safely trust the existing connected state. Its
       // destination will perform the real API request, while blocking here on
       // a health probe makes an otherwise local tab switch take up to 5s.
@@ -4448,6 +4449,49 @@ export const useConnectionStore = defineStore("connection", () => {
       }
       finishLocalConnectionAttempt(connectionId, localAttempt);
     }
+  }
+
+  /**
+   * Re-push an already-open plugin connection's config (credentials included)
+   * to its sidecar through the same connection/connect path used when opening
+   * from the sidebar. A plugin iframe reload can leave the sidecar's in-memory
+   * connection registry empty while the host still considers the connection
+   * open, and ensureConnected()'s health fast-path would not heal that. Silent
+   * no-op when the connection is not open, is not plugin-backed, or its
+   * credentials are no longer available (save_password=false without a live
+   * session credential): the plugin then keeps its existing "reopen from the
+   * sidebar" guidance instead of triggering an interactive prompt from a
+   * background re-init.
+   */
+  async function repushPluginConnection(connectionId: string): Promise<void> {
+    const config = getConfig(connectionId);
+    if (!config || config.db_type !== "plugin" || !connectedIds.value.has(connectionId)) return;
+    // A successful connect/health probe within the TTL means the sidebar open
+    // (or a fresh restore connect) pushed the config moments ago and the
+    // sidecar registry cannot plausibly be empty yet — skipping here keeps the
+    // first open from paying a redundant disconnect+connect cycle on the
+    // plugin's first `ready`. The 2s in-memory TTL dies with the frontend, so
+    // every realistic reload path still re-pushes.
+    if (hasRecentConnectionHealthCheck(connectionId)) return;
+    if (connectionNeedsPasswordPrompt(config) && (await pluginConnectionPasswordPromptNeeded(config)) && !(await hasSessionCredential(connectionId))) return;
+    await ensureConnected(connectionId, { activate: false, forceReconnect: true });
+  }
+
+  /**
+   * Explicit, user-triggered reconnect of a plugin connection (the plugin's own
+   * "reconnect" button). Unlike repushPluginConnection — the silent background
+   * heal — this runs the full connect flow and MAY show the interactive
+   * password prompt, which is appropriate for a deliberate user action. Editing
+   * a connection drops it from connectedIds without notifying plugins, so the
+   * sidecar's config goes stale; this is the plugin's way to request a fresh
+   * connection/connect with the updated config.
+   */
+  async function reopenPluginConnection(connectionId: string, pluginId: string): Promise<void> {
+    const config = getConfig(connectionId);
+    if (!config) throw new Error("Connection config not found");
+    if (config.db_type !== "plugin") throw new Error("Connection is not plugin-backed");
+    if (config.plugin_id !== pluginId) throw new Error("Connection is owned by another plugin");
+    await ensureConnected(connectionId, { activate: false, forceReconnect: true });
   }
 
   function setBeforeConnectHandler(handler: BeforeConnectHandler | null) {
@@ -4841,7 +4885,7 @@ export const useConnectionStore = defineStore("connection", () => {
     }
   }
 
-  async function loadRedisDatabases(connectionId: string) {
+  async function loadRedisDatabases(connectionId: string, options?: { showAll?: boolean }) {
     const node = findConnectionNode(connectionId);
     return runConnectionTreeMetadataLoad(connectionId, node, async (load) => {
       const dbs = await withMetadataLoadTimeout(connectionId, api.redisListDatabases(connectionId), "Redis databases");
@@ -4857,26 +4901,25 @@ export const useConnectionStore = defineStore("connection", () => {
         connectionId,
         dbs.map((db) => String(db.db)),
       );
-      setChildren(
-        targetNode,
-        withSavedSqlRoot(
+      const databaseNodes: TreeNode[] = dbs
+        .filter((db) => visibleNameSet.has(String(db.db)))
+        .map((db) => ({
+          id: `${connectionId}:db${db.db}`,
+          label: redisDatabaseLabel(db.db, config?.redis_database_aliases, db.keys),
+          type: "redis-db" as const,
           connectionId,
-          dbs
-            .filter((db) => visibleNameSet.has(String(db.db)))
-            .map((db) => ({
-              id: `${connectionId}:db${db.db}`,
-              label: redisDatabaseLabel(db.db, config?.redis_database_aliases, db.keys),
-              type: "redis-db" as const,
-              connectionId,
-              database: String(db.db),
-              loadedKeyCount: 0,
-              totalKeyCount: db.keys,
-              isExpanded: false,
-              children: [],
-            })),
-          targetNode,
-        ),
-      );
+          database: String(db.db),
+          loadedKeyCount: 0,
+          totalKeyCount: db.keys,
+          isExpanded: false,
+          children: [],
+        }));
+      // #1236: a `databases` count in the low hundreds is rare but not unheard
+      // of, and dumping every one of them into the sidebar at once is the
+      // reported pain point. Cap the initial render and let a "load more" node
+      // reveal the rest on demand, unless the user explicitly asked to see all.
+      const { visible, hasMore } = options?.showAll ? { visible: databaseNodes, hasMore: false } : limitRedisDatabaseList(databaseNodes, useSettingsStore().editorSettings.redisDatabaseDisplayLimit);
+      setChildren(targetNode, withSavedSqlRoot(connectionId, hasMore ? [...visible, buildLoadMoreNode(targetNode, visible.length, databaseNodes.length - visible.length)] : visible, targetNode));
       targetNode.isExpanded = true;
     });
   }
@@ -6127,6 +6170,18 @@ export const useConnectionStore = defineStore("connection", () => {
     if (node.type !== "load-more" || !node.loadMore) return;
     const loadMore = node.loadMore;
     const parent = findNode(treeNodes.value, node.loadMore.parentId);
+    if (parent?.type === "connection" && parent.connectionId && getConfig(parent.connectionId)?.db_type === "redis") {
+      // The full database list is already fetched in one cheap call, so "load
+      // more" here just re-renders it without the display-limit truncation
+      // instead of paging through another backend round trip.
+      node.isLoading = true;
+      try {
+        await loadRedisDatabases(parent.connectionId, { showAll: true });
+      } finally {
+        node.isLoading = false;
+      }
+      return;
+    }
     if (!parent?.connectionId || !hasTreeNodeDatabaseContext(parent)) return;
     const parentConnectionId = parent.connectionId;
     const configForScope = getConfig(parentConnectionId);
@@ -7571,7 +7626,29 @@ export const useConnectionStore = defineStore("connection", () => {
       }));
   }
 
-  async function listCompletionAssistantTables(connectionId: string, database: string, filter: string, limit?: number, schema?: string, globalSearch = false, currentSchema?: string, requestRevision = completionCacheRevision(connectionId, database)): Promise<SqlCompletionTable[]> {
+  /**
+   * The completion assistant matches names by prefix only, while the warm local
+   * index also matches substrings. Without widening, the very first fuzzy lookup
+   * of a connection (empty local index) returns far fewer candidates than the
+   * same lookup once the index is warm. Widening to a substring search keeps the
+   * two paths consistent whenever the prefix search left room in the result list.
+   */
+  function shouldWidenCompletionMatch(filter: string, resultCount: number, limit?: number): boolean {
+    if (filter.trim().length < 3) return false;
+    return limit === undefined || resultCount < limit;
+  }
+
+  async function listCompletionAssistantTables(
+    connectionId: string,
+    database: string,
+    filter: string,
+    limit?: number,
+    schema?: string,
+    globalSearch = false,
+    currentSchema?: string,
+    requestRevision = completionCacheRevision(connectionId, database),
+    matchMode: CompletionAssistantMatchMode = "prefix",
+  ): Promise<SqlCompletionTable[]> {
     const oracleAssistant = getConfig(connectionId)?.db_type === "oracle";
     const preferredSchema = oracleAssistant ? completionPreferredSchema(connectionId, globalSearch ? currentSchema : (schema ?? currentSchema)) : schema?.trim() || undefined;
     const objectKinds: CompletionAssistantObjectKind[] = ["table", "view"];
@@ -7585,7 +7662,7 @@ export const useConnectionStore = defineStore("connection", () => {
         max_results: limit ?? 200,
         global_search: globalSearch,
         parent_schema: globalSearch ? null : (schema ?? null),
-        match_mode: "prefix",
+        match_mode: matchMode,
       },
       requestRevision,
     );
@@ -7605,6 +7682,7 @@ export const useConnectionStore = defineStore("connection", () => {
     currentSchema: string | undefined,
     objectKinds: CompletionAssistantObjectKind[],
     caseSensitive: boolean,
+    matchMode: CompletionAssistantMatchMode = "prefix",
   ): Promise<SqlCompletionObject[]> {
     const databaseType = getConfig(connectionId)?.db_type;
     const oracleAssistant = databaseType === "oracle";
@@ -7622,7 +7700,7 @@ export const useConnectionStore = defineStore("connection", () => {
       global_search: globalSearch,
       parent_schema: globalSearch || sequenceOnly ? null : (schema ?? null),
       parent_name: parentName ?? null,
-      match_mode: "prefix",
+      match_mode: matchMode,
     });
     const objects = completionAssistantObjects(response.candidates, preferredSchema, oracleAssistant).map((object) => ({
       ...object,
@@ -8122,6 +8200,14 @@ export const useConnectionStore = defineStore("connection", () => {
             try {
               results = await listCompletionAssistantTables(connectionId, database, trimmedFilter, limit, schema, globalSearch, currentSchema, requestRevision);
               assistantCompleted = true;
+              if (shouldWidenCompletionMatch(trimmedFilter, results.length, limit)) {
+                try {
+                  const widenedTables = await listCompletionAssistantTables(connectionId, database, trimmedFilter, limit, schema, globalSearch, currentSchema, requestRevision, "contains");
+                  results = dedupeCompletionTables([...results, ...widenedTables]);
+                } catch {
+                  // Keep the prefix matches when the widened lookup is unavailable.
+                }
+              }
             } catch {
               if (schema) {
                 const tables = await listCompletionTableMetadata(connectionId, database, schema, trimmedFilter, limit, catalog);
@@ -8255,7 +8341,16 @@ export const useConnectionStore = defineStore("connection", () => {
           await ensureConnected(connectionId);
           if (filteredRoutineAssistant) {
             try {
-              completionObjectsCache.value[cacheKey] = dedupeCompletionObjects(await listCompletionAssistantObjects(connectionId, database, filter, limit, schema, parentName, globalSearch, currentSchema, objectKinds, caseSensitive));
+              let assistantObjects = await listCompletionAssistantObjects(connectionId, database, filter, limit, schema, parentName, globalSearch, currentSchema, objectKinds, caseSensitive);
+              if (shouldWidenCompletionMatch(filter, assistantObjects.length, limit)) {
+                try {
+                  const widenedObjects = await listCompletionAssistantObjects(connectionId, database, filter, limit, schema, parentName, globalSearch, currentSchema, objectKinds, caseSensitive, "contains");
+                  assistantObjects = [...assistantObjects, ...widenedObjects];
+                } catch {
+                  // Keep the prefix matches when the widened lookup is unavailable.
+                }
+              }
+              completionObjectsCache.value[cacheKey] = dedupeCompletionObjects(assistantObjects);
             } catch {
               if (objectKinds.length === 1 && objectKinds[0] === "sequence") {
                 completionObjectsCache.value[cacheKey] = [];
@@ -9323,6 +9418,8 @@ export const useConnectionStore = defineStore("connection", () => {
     startCreatingConnectionInGroup,
     stopCreatingConnectionInGroup,
     connect,
+    repushPluginConnection,
+    reopenPluginConnection,
     cancelConnecting,
     disconnect,
     hasDisconnectInFlight,

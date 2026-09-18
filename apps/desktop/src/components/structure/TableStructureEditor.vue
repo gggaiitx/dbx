@@ -5021,7 +5021,7 @@ watch(
             <div ref="structureHorizontalScrollbarThumbRef" class="structure-horizontal-scrollbar__thumb" />
           </div>
 
-          <TabsContent ref="foreignKeysScrollerRef" v-if="tableMetadataCapabilities.foreignKeys" value="foreignKeys" class="m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)]" @scroll.passive="onStructureContentScroll('foreignKeys', $event)">
+          <TabsContent ref="foreignKeysScrollerRef" v-if="tableMetadataCapabilities.foreignKeys" value="foreignKeys" class="structure-card-scroller m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)]" @scroll.passive="onStructureContentScroll('foreignKeys', $event)">
             <div v-if="foreignKeysLoading" class="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 class="h-4 w-4 animate-spin" />
               {{ t("common.loading") }}
@@ -5074,7 +5074,7 @@ watch(
             </div>
           </TabsContent>
 
-          <TabsContent ref="constraintsScrollerRef" v-if="tableMetadataCapabilities.constraints" value="constraints" class="m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)]" @scroll.passive="onStructureContentScroll('constraints', $event)">
+          <TabsContent ref="constraintsScrollerRef" v-if="tableMetadataCapabilities.constraints" value="constraints" class="structure-card-scroller m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)]" @scroll.passive="onStructureContentScroll('constraints', $event)">
             <div v-if="constraintsLoading" class="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 class="h-4 w-4 animate-spin" />
               {{ t("common.loading") }}
@@ -5100,7 +5100,7 @@ watch(
             </div>
           </TabsContent>
 
-          <TabsContent ref="triggersScrollerRef" v-if="tableMetadataCapabilities.triggers" value="triggers" class="m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)]" @scroll.passive="onStructureContentScroll('triggers', $event)">
+          <TabsContent ref="triggersScrollerRef" v-if="tableMetadataCapabilities.triggers" value="triggers" class="structure-card-scroller m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)]" @scroll.passive="onStructureContentScroll('triggers', $event)">
             <div v-if="triggersLoading" class="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 class="h-4 w-4 animate-spin" />
               {{ t("common.loading") }}
@@ -5186,7 +5186,7 @@ watch(
             </div>
           </TabsContent>
 
-          <TabsContent ref="ddlScrollerRef" v-if="tableMetadataCapabilities.ddl" value="ddl" force-mount class="relative m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)] data-[state=inactive]:hidden" @scroll.passive="onStructureContentScroll('ddl', $event)">
+          <TabsContent ref="ddlScrollerRef" v-if="tableMetadataCapabilities.ddl" value="ddl" force-mount class="structure-card-scroller relative m-0 min-h-0 flex-1 overflow-auto p-[var(--structure-cell-px)] data-[state=inactive]:hidden" @scroll.passive="onStructureContentScroll('ddl', $event)">
             <div v-if="ddlLoading" class="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 class="h-4 w-4 animate-spin" />
               {{ t("common.loading") }}
@@ -5400,9 +5400,72 @@ watch(
   background: var(--dbx-editor-selection-background, rgba(59, 130, 246, 0.35)) !important;
 }
 
+/* DDL (CodeMirror) scrollbars match the grid scroller style. */
+.structure-ddl-editor :deep(.cm-scroller::-webkit-scrollbar) {
+  width: 10px;
+  height: 10px;
+}
+
+.structure-ddl-editor :deep(.cm-scroller::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+.structure-ddl-editor :deep(.cm-scroller::-webkit-scrollbar-thumb) {
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+.structure-ddl-editor :deep(.cm-scroller::-webkit-scrollbar-thumb:hover) {
+  background: color-mix(in oklab, var(--foreground) 48%, transparent);
+  border-width: 2px;
+  background-clip: padding-box;
+}
+
 .structure-table-scroller::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
   height: 0;
+}
+
+/* Foreign keys / constraints / triggers card lists: both scrollbars match. */
+.structure-card-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.structure-card-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.structure-card-scroller::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+.structure-card-scroller::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 48%, transparent);
+  border-width: 2px;
+  background-clip: padding-box;
+}
+
+.structure-table-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.structure-table-scroller::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+.structure-table-scroller::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 48%, transparent);
+  border-width: 2px;
+  background-clip: padding-box;
 }
 
 .structure-horizontal-scrollbar {
@@ -5411,7 +5474,7 @@ watch(
   flex-shrink: 0;
   cursor: pointer;
   touch-action: none;
-  background: var(--background);
+  background: transparent;
 }
 
 .structure-horizontal-scrollbar__thumb {
@@ -5480,5 +5543,31 @@ watch(
 /* Inputs are bg-transparent; give them a solid surface on the selected row so fields stay readable. */
 .structure-column-search-current :is(input, button, [role="combobox"], [data-slot="select-trigger"]) {
   background-color: var(--background);
+}
+</style>
+
+<style>
+/* Non-scoped so the scrollbar pseudo-elements on CodeMirror's cm-scroller actually match in WebView2.
+   Matches the grid / card scroller scrollbar style (10px track, 4px thumb, 6px on hover). */
+.structure-ddl-editor .cm-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.structure-ddl-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.structure-ddl-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+.structure-ddl-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 48%, transparent);
+  border-width: 2px;
+  background-clip: padding-box;
 }
 </style>

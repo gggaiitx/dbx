@@ -415,7 +415,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     id: "globalSearch",
     labelKey: "settings.shortcutGlobalSearch",
     scope: "global",
-    defaultShortcut: "Mod+Shift+F",
+    defaultShortcut: "Mod+Alt+F",
   },
   {
     id: "toggleAiPanel",

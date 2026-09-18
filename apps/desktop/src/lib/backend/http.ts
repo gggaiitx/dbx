@@ -53,6 +53,7 @@ import type {
 } from "@/types/database";
 import type { DetachedTabHandoff } from "@/lib/app/detachedTabHandoff";
 import { normalizeRustMongoCommand, type MongoCommand } from "@/lib/mongo/mongoShellCommand";
+import type { MongoBulkWriteResult } from "@/lib/mongo/mongoShellCommand";
 import { BackendErrorException, type BackendError } from "@/lib/backend/errorUtils";
 import { decodeMeilisearchDocumentPage, decodeMeilisearchSearchResult, type MeilisearchDocumentPage, type MeilisearchDocumentPageWire, type MeilisearchSearchResult, type MeilisearchSearchWireResult } from "@/lib/backend/meilisearchTransport";
 import type { CreatedKey, EnqueuedTaskSummary, KeyCreateInput, KeyListItem, KeyPage, KeyUpdateInput, MeilisearchSystemOverview, MeilisearchTask, TaskListInput, TaskPage, TaskSelector } from "@/types/meilisearchManagement";
@@ -3211,6 +3212,11 @@ export async function exportQueryResultMarkdown(filePath: string, columns: strin
   downloadTextFile(filePath, "export.md", result.content, "text/markdown;charset=utf-8");
 }
 
+export async function exportQueryResultHtml(filePath: string, title: string | undefined, columns: string[], rows: readonly (readonly XlsxCellValue[])[]): Promise<void> {
+  const result = await post<{ content: string }>("/api/export/query-result-html", { title, columns, rows });
+  downloadTextFile(filePath, "export.html", result.content, "text/html;charset=utf-8");
+}
+
 // ---------------------------------------------------------------------------
 // Redis
 // ---------------------------------------------------------------------------
@@ -4667,6 +4673,32 @@ export async function documentUpdateDocument(connectionId: string, database: str
     id,
     docJson,
     routing,
+  });
+}
+
+export async function mongoExplainFind(connectionId: string, database: string, collection: string, options: { skip: number; limit: number; filter?: string; projection?: string; sort?: string; collation?: string; verbosity?: string }, executionId?: string): Promise<unknown> {
+  return post("/api/mongo/explain-find", {
+    connectionId,
+    database,
+    collection,
+    skip: options.skip,
+    limit: options.limit,
+    filter: options.filter,
+    projection: options.projection,
+    sort: options.sort,
+    collation: options.collation,
+    verbosity: options.verbosity,
+    executionId,
+  });
+}
+
+export async function mongoBulkWrite(connectionId: string, database: string, collection: string, operationsJson: string, optionsJson?: string): Promise<MongoBulkWriteResult> {
+  return post("/api/mongo/bulk-write", {
+    connectionId,
+    database,
+    collection,
+    operationsJson,
+    optionsJson,
   });
 }
 

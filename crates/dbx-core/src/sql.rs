@@ -298,12 +298,26 @@ pub struct SqlFileProgress {
     pub elapsed_ms: u128,
     pub statement_summary: String,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_read: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<SqlFilePhase>,
     /// When processing multiple files, the 0-based index of the current file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_index: Option<usize>,
     /// When processing multiple files, the name of the current file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SqlFilePhase {
+    Preparing,
+    Reading,
+    Executing,
 }
 
 pub fn decode_sql_file_bytes(bytes: &[u8]) -> Result<String, String> {

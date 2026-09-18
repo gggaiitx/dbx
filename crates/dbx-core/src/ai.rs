@@ -333,6 +333,10 @@ pub struct AiChatSelectionState {
     pub effort_preferences: Vec<AiModelEffortPreference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<AiAssistantMode>,
+    /// Whether new AI conversations start with the action picker on `auto`
+    /// (intent routing). Defaults to false: a concrete action stays the norm.
+    #[serde(default)]
+    pub default_auto_routing: bool,
     /// Whether opening the AI panel should restore the most recently updated conversation.
     #[serde(default)]
     pub restore_last_conversation: bool,
@@ -353,6 +357,7 @@ impl Default for AiChatSelectionState {
             active: None,
             effort_preferences: Vec::new(),
             default_mode: None,
+            default_auto_routing: false,
             restore_last_conversation: false,
             default_templates_by_db_type: BTreeMap::new(),
             last_used_templates_by_db_type: BTreeMap::new(),
@@ -5213,6 +5218,9 @@ mod tests {
         let legacy: AiChatSelectionState =
             serde_json::from_str(r#"{"version":1,"active":null,"effortPreferences":[]}"#).unwrap();
         assert_eq!(legacy.default_mode, None);
+        // Same for the opt-in auto-routing flag: a blob written before it existed
+        // must load as false (concrete action stays the default).
+        assert!(!legacy.default_auto_routing);
 
         let agent: AiChatSelectionState = serde_json::from_str(r#"{"version":1,"defaultMode":"agent"}"#).unwrap();
         assert_eq!(agent.default_mode, Some(AiAssistantMode::Agent));
@@ -5223,6 +5231,7 @@ mod tests {
         // camelCase key + lowercase value round-trip.
         let serialized = serde_json::to_value(agent).unwrap();
         assert_eq!(serialized["defaultMode"], serde_json::json!("agent"));
+        assert_eq!(serialized["defaultAutoRouting"], serde_json::json!(false));
     }
 
     struct CapturedJsonRequest {

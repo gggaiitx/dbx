@@ -1385,6 +1385,13 @@ fn is_postgres_compat_transfer(source_db: &DatabaseType, target_db: &DatabaseTyp
     is_postgres_transfer_dialect(source_db) && is_postgres_transfer_dialect(target_db)
 }
 
+/// Oracle-family transfer dialects that return `DBMS_METADATA`-style owner-qualified
+/// DDL. Dameng is deliberately excluded: its reuse path strips storage clauses as well,
+/// so it keeps its own branch above.
+fn is_oracle_family_transfer_target(db_type: &DatabaseType) -> bool {
+    matches!(db_type, DatabaseType::Oracle | DatabaseType::OceanbaseOracle)
+}
+
 fn is_postgres_transfer_dialect(db_type: &DatabaseType) -> bool {
     // KingbaseES supports the PostgreSQL DDL, type, and ON CONFLICT paths used by transfer;
     // other PG-wire databases stay opt-in until their transfer behavior is verified.
@@ -3676,7 +3683,9 @@ fn generate_create_table_ddl_with_column_quoting(
     };
 
     let create_prefix = match target_db {
-        DatabaseType::SqlServer | DatabaseType::Dameng => "CREATE TABLE",
+        DatabaseType::Oracle | DatabaseType::OceanbaseOracle | DatabaseType::SqlServer | DatabaseType::Dameng => {
+            "CREATE TABLE"
+        }
         _ => "CREATE TABLE IF NOT EXISTS",
     };
 
@@ -4368,6 +4377,15 @@ fn rewrite_transfer_source_table_ddl(
         let source_schema = if source_schema.trim().is_empty() { "PUBLIC" } else { source_schema };
         let target_schema = if target_schema.trim().is_empty() { "PUBLIC" } else { target_schema };
         Some(rewrite_h2_schema_qualifier(sql, source_schema, target_schema))
+    } else if is_oracle_family_transfer_target(source_db_type) && is_oracle_family_transfer_target(target_db_type) {
+        // Oracle-family sources return `DBMS_METADATA`-style DDL whose CREATE TABLE head
+        // carries the owner schema (`"SALES"."T"`). Unlike the Oracle schema-object path
+        // this reuse path never rewrote it, so transferring into a differently named
+        // schema kept the source qualifier and the target rejected it with
+        // `ORA-00942`/`OBE-00600 ... Unknown database` (or silently created the table in
+        // the source schema when it existed there). Rewrite only the quoted qualifier so
+        // string literals and comments keep their original text.
+        Some(rewrite_double_quoted_schema_qualifier(sql, source_schema, target_schema))
     } else if is_mysql_family_target(source_db_type) && is_mysql_family_target(target_db_type) {
         // The reused SHOW CREATE TABLE DDL carries the source table name; rewrite the
         // CREATE TABLE header when the transfer renames the table (name case conversion).
@@ -10810,6 +10828,7 @@ CREATE TABLE "Other"."prefix""Source"."NAME" ("ID" INT);"#;
         db::TableInfo {
             name: name.to_string(),
             table_type: "TABLE".to_string(),
+            valid: None,
             comment: None,
             parent_schema: None,
             parent_name: None,
@@ -12606,6 +12625,152 @@ CREATE TABLE "Other"."prefix""Source"."NAME" ("ID" INT);"#;
     }
 
     #[test]
+    fn transfer_create_table_mysql_to_oceanbase_oracle_omits_if_not_exists() {
+        let columns = vec![db::ColumnInfo {
+            is_nullable: false,
+            is_primary_key: true,
+            ..test_column("area_code", "varchar(36)")
+        }];
+
+        let ddl = generate_create_table_ddl(
+            &columns,
+            "BASEDATA_AREAS",
+            "source_db",
+            "SALES",
+            &DatabaseType::OceanbaseOracle,
+            &DatabaseType::Mysql,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            ddl,
+            "CREATE TABLE \"SALES\".\"BASEDATA_AREAS\" (\n  \"area_code\" VARCHAR(36 CHAR) NOT NULL,\n  PRIMARY KEY (\"area_code\")\n)"
+        );
+    }
+
+    #[test]
+    fn transfer_create_table_oracle_family_and_dameng_use_plain_create() {
+        let columns = vec![test_column("id", "int")];
+
+        for target in [DatabaseType::Oracle, DatabaseType::OceanbaseOracle, DatabaseType::Dameng] {
+            for schema in ["", "SALES"] {
+                let ddl = generate_create_table_ddl(
+                    &columns,
+                    "items",
+                    "source_db",
+                    schema,
+                    &target,
+                    &DatabaseType::Mysql,
+                    None,
+                    None,
+                );
+                let full_table = if schema.is_empty() { "\"items\"" } else { "\"SALES\".\"items\"" };
+
+                assert!(ddl.starts_with(&format!("CREATE TABLE {full_table} (\n")), "{target:?}: {ddl}");
+                assert!(!ddl.contains("IF NOT EXISTS"), "{target:?}: {ddl}");
+            }
+        }
+    }
+
+    #[test]
+    fn transfer_create_table_supported_dialects_keep_if_not_exists() {
+        let columns = vec![test_column("id", "int")];
+
+        for target in [DatabaseType::Mysql, DatabaseType::Postgres, DatabaseType::Sqlite, DatabaseType::Kingbase] {
+            let ddl = generate_create_table_ddl(
+                &columns,
+                "items",
+                "source_db",
+                "",
+                &target,
+                &DatabaseType::Mysql,
+                None,
+                None,
+            );
+
+            assert!(ddl.starts_with("CREATE TABLE IF NOT EXISTS "), "{target:?}: {ddl}");
+        }
+    }
+
+    #[test]
+    fn transfer_create_table_sqlserver_preserves_existence_guard() {
+        let ddl = generate_create_table_ddl(
+            &[test_column("id", "int")],
+            "items",
+            "source_db",
+            "dbo",
+            &DatabaseType::SqlServer,
+            &DatabaseType::Mysql,
+            None,
+            None,
+        );
+
+        assert!(ddl.starts_with(
+            "IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'items')\nCREATE TABLE [dbo].[items] (\n"
+        ));
+        assert!(!ddl.contains("CREATE TABLE IF NOT EXISTS"));
+    }
+
+    #[test]
+    fn transfer_create_table_oceanbase_oracle_preserves_column_quoting_policy() {
+        let columns = vec![
+            db::ColumnInfo { is_primary_key: true, ..test_column("AREA_CODE", "varchar(36)") },
+            test_column("select", "varchar(36)"),
+            test_column("has space", "varchar(36)"),
+            test_column("has\"quote", "varchar(36)"),
+        ];
+
+        for quote_columns in [true, false] {
+            let ddl = generate_create_table_ddl_with_column_quoting(
+                &columns,
+                "BASEDATA_AREAS",
+                "source_db",
+                "SALES",
+                &DatabaseType::OceanbaseOracle,
+                &DatabaseType::Mysql,
+                None,
+                None,
+                quote_columns,
+            );
+            assert!(ddl.starts_with("CREATE TABLE \"SALES\".\"BASEDATA_AREAS\" (\n"), "{ddl}");
+            assert!(ddl.contains("\"AREA_CODE\" VARCHAR(36 CHAR)"), "{ddl}");
+            assert!(ddl.contains("PRIMARY KEY (\"AREA_CODE\")"), "{ddl}");
+            assert!(ddl.contains("\"select\" VARCHAR(36 CHAR)"), "{ddl}");
+            assert!(ddl.contains("\"has space\" VARCHAR(36 CHAR)"), "{ddl}");
+            assert!(ddl.contains("\"has\"\"quote\" VARCHAR(36 CHAR)"), "{ddl}");
+        }
+    }
+
+    #[test]
+    fn transfer_create_table_oracle_existing_targets_and_errors_remain_distinct() {
+        let tables = vec![test_table("BASEDATA_AREAS")];
+        assert_eq!(
+            existing_transfer_target_table_name("BASEDATA_AREAS", &tables, false),
+            Some("BASEDATA_AREAS".to_string())
+        );
+        assert_eq!(existing_transfer_target_table_name("basedata_areas", &tables, false), None);
+        assert_eq!(existing_transfer_target_table_name("BASEDATA", &tables, false), None);
+        assert!(transfer_create_table_created(Ok(()), "Failed to create table").unwrap());
+        assert!(!transfer_create_table_created(
+            Err("Table 'BASEDATA_AREAS' already exists".to_string()),
+            "Failed to create table"
+        )
+        .unwrap());
+
+        for error in [
+            "ORA-00900: invalid SQL statement near 'NOT EXISTS'",
+            "ORA-01031: insufficient privileges",
+            "ORA-00955: name is already used by an existing object",
+        ] {
+            assert_eq!(
+                transfer_create_table_created(Err(error.to_string()), "Failed to create table"),
+                Err(format!("Failed to create table: {error}"))
+            );
+        }
+    }
+
+    #[test]
     fn mysql_create_table_includes_column_comments() {
         let cols = vec![
             db::ColumnInfo { comment: Some("用户ID".to_string()), is_primary_key: true, ..test_column("id", "int") },
@@ -13561,6 +13726,39 @@ PARTITION p_old VALUES LESS THAN (TO_DAYS('2026-01-01')))";
             ),
             Some(storage_portable_ddl)
         );
+    }
+
+    #[test]
+    fn oracle_transfer_reused_table_ddl_rewrites_schema_qualifier() {
+        let ddl = concat!(
+            "CREATE TABLE \"SALES\".\"BASEDATA_T_BANKLOCATIONS\" (\n",
+            "\"ID\" NUMBER(19, 0) NOT NULL,\n",
+            "\"NOTE\" VARCHAR2(100) DEFAULT '\"SALES\".literal',\n",
+            "PRIMARY KEY (\"ID\"));\n",
+            "COMMENT ON TABLE \"SALES\".\"BASEDATA_T_BANKLOCATIONS\" IS 'keep \"SALES\".comment';\n",
+            "-- keep \"SALES\".line_comment\n",
+            "/* keep \"SALES\".block_comment */",
+        );
+
+        let rewritten = rewrite_transfer_source_table_ddl(
+            ddl,
+            "SALES",
+            "ANALYTICS",
+            &DatabaseType::OceanbaseOracle,
+            &DatabaseType::OceanbaseOracle,
+            "BASEDATA_T_BANKLOCATIONS",
+            "BASEDATA_T_BANKLOCATIONS",
+        )
+        .unwrap();
+
+        assert!(rewritten.contains("CREATE TABLE \"ANALYTICS\".\"BASEDATA_T_BANKLOCATIONS\""));
+        assert!(rewritten.contains("COMMENT ON TABLE \"ANALYTICS\".\"BASEDATA_T_BANKLOCATIONS\""));
+        assert!(!rewritten.contains("\"SALES\".\"BASEDATA_T_BANKLOCATIONS\""));
+        // Literals and comments keep the source qualifier untouched.
+        assert!(rewritten.contains("'\"SALES\".literal'"));
+        assert!(rewritten.contains("'keep \"SALES\".comment'"));
+        assert!(rewritten.contains("-- keep \"SALES\".line_comment"));
+        assert!(rewritten.contains("/* keep \"SALES\".block_comment */"));
     }
 
     #[test]

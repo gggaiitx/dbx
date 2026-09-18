@@ -3995,6 +3995,38 @@ async fn execute_multi_mysql(
     let statements_ms = statements_started_at.elapsed().as_millis();
     drop(executor);
 
+    // Tab-scoped single-connection pools disable COM_RESET_CONNECTION on return
+    // (to preserve session state like temporary tables), so an open transaction
+    // left on the connection — a user-typed BEGIN/START TRANSACTION without
+    // COMMIT, or a canceled/aborted batch that skipped its cleanup — would pin
+    // the REPEATABLE READ snapshot for every later auto-commit query on that
+    // tab, making the tab read stale rows until disconnect. Closing any open
+    // transaction before returning the connection restores the auto-commit
+    // contract; ROLLBACK on an already-committed/implicit transaction is a
+    // server no-op, and a failure here only discards this connection.
+    {
+        let rollback_started_at = std::time::Instant::now();
+        match conn.query_drop("ROLLBACK").await {
+            Ok(()) => {
+                if rollback_started_at.elapsed() > std::time::Duration::from_millis(5) {
+                    log::info!(
+                        "[query][mysql-batch] trace_id={} open_txn_rollback_ms={}",
+                        trace_id,
+                        rollback_started_at.elapsed().as_millis()
+                    );
+                }
+            }
+            Err(error) => {
+                // A failed ROLLBACK leaves the transaction state unknown: drop
+                // the connection instead of returning it to the session pool.
+                log::warn!("[query][mysql-batch] trace_id={} open_txn_rollback_failed error={}", trace_id, error);
+                let _ = tokio::time::timeout(Duration::from_secs(5), conn.disconnect()).await;
+                state.remove_pool_by_key(pool_key).await;
+                return Ok(results);
+            }
+        }
+    }
+
     log::info!(
         "[query][mysql-batch] trace_id={} checkout_ms={} catalog_ms={} statements_ms={} total_ms={} result_count={} row_counts={:?}",
         trace_id,
@@ -5581,6 +5613,7 @@ async fn begin_transaction_session(
         pool_key: pool_key.clone(),
         last_activity: std::time::Instant::now(),
         busy: false,
+        snapshot_rotation_safe: !consistent_snapshot,
         connection_id: connection_id.to_string(),
         database: database.to_string(),
         schema: schema.map(|s| s.to_string()),
@@ -5754,6 +5787,9 @@ pub async fn execute_in_manual_transaction_with_options(
     // session remains intact.
     check_read_only_for_connection_multi(state, &pool_key, &statements).await?;
 
+    let classification: Vec<bool> =
+        classify_manual_transaction_statements(db_type, statements.len(), options.classification_sql.as_deref());
+
     let connection = {
         let mut sessions = state.transaction_sessions.write().await;
         let Some(session) = sessions.get_mut(txn_session_id) else {
@@ -5767,6 +5803,8 @@ pub async fn execute_in_manual_transaction_with_options(
             Some(session)
         } else {
             session.busy = true;
+            session.snapshot_rotation_safe &=
+                classification.len() == statements.len() && classification.iter().all(|proven| *proven);
             session.last_activity = std::time::Instant::now();
             None
         }
@@ -5787,15 +5825,6 @@ pub async fn execute_in_manual_transaction_with_options(
     };
     let row_limit = options.max_rows.unwrap_or(MAX_ROWS).max(1);
     let mut results = Vec::with_capacity(statements.len());
-
-    // Sticky-dialect classification pairing. The core splits both the execution
-    // SQL and, when present, the user-facing classification SQL with the same
-    // dialect-aware splitter. A marker is emitted only when both lists have the
-    // same non-zero count and every paired user statement is proven read-only;
-    // any mismatch is fail-closed (no marker). This is deliberately a
-    // trust-boundary count/position pairing, not a SQL-equivalence parser.
-    let classification: Vec<bool> =
-        classify_manual_transaction_statements(db_type, statements.len(), options.classification_sql.as_deref());
 
     let mut conn = connection.lock().await;
     for (i, statement) in statements.iter().enumerate() {
@@ -5854,6 +5883,29 @@ pub async fn execute_in_manual_transaction_with_options(
                 }
                 return Err(format!("Statement {} failed: {}. The manual transaction was rolled back.", i + 1, e));
             }
+        }
+    }
+
+    // Snapshot rotation for fully proven read-only batches (native MySQL/PG
+    // connections only): see rotate_clean_read_only_snapshot. Runs while the
+    // session is still marked busy so no concurrent execution can observe the
+    // half-rotated transaction. A rotation failure tears the session down and
+    // leans on the frontend rolled-back-session recovery (next execution opens
+    // a fresh session) instead of failing the already-successful batch.
+    if manual_txn_batch_fully_proven_read_only(&results) && {
+        let sessions = state.transaction_sessions.read().await;
+        sessions.get(txn_session_id).map(|session| session.can_rotate_read_only_snapshot(&conn)).unwrap_or(false)
+    } {
+        if let Err(rotation_error) = rotate_clean_read_only_snapshot(&mut conn, schema).await {
+            let removed = {
+                let mut sessions = state.transaction_sessions.write().await;
+                sessions.remove(txn_session_id).is_some()
+            };
+            if removed {
+                let _ = rollback_manual_txn_connection(&mut conn).await;
+                release_manual_txn_session_pool(state, &connection_id, &mut conn).await;
+            }
+            let _ = rotation_error;
         }
     }
     drop(conn);
@@ -5916,6 +5968,7 @@ where
             Some(sessions.remove(txn_session_id).expect("session exists").connection)
         } else {
             session.busy = true;
+            session.snapshot_rotation_safe = false;
             session.last_activity = std::time::Instant::now();
             None
         }
@@ -6068,7 +6121,54 @@ where
     stream_result
 }
 
-async fn rollback_manual_txn_connection(conn: &mut TxnConnection) -> Result<(), String> {
+/// Whether a finished batch was fully proven read-only. Session history is
+/// checked separately before rotating its snapshot.
+fn manual_txn_batch_fully_proven_read_only(results: &[ExecuteMultiResult]) -> bool {
+    !results.is_empty() && results.iter().all(|result| result.manual_transaction_proven_read_only)
+}
+
+/// Rotate the transaction on a natively-connected MySQL/PostgreSQL session after
+/// a fully proven read-only batch. MySQL REPEATABLE READ (and PostgreSQL when
+/// the server default was changed to a snapshot isolation) pins the read view of
+/// the first SELECT for the whole transaction: a user who keeps polling a clean
+/// read-only session would otherwise never see rows committed by others, and the
+/// clean-state toolbar hides Commit/Rollback, leaving disconnect/reconnect as
+/// the only visible way out. A rollback of a read-only transaction and a fresh
+/// BEGIN are both cheap metadata operations. The session-history gate excludes
+/// any prior write or uncertain batch. Failures never fail the successful batch:
+/// the session is torn down instead and the frontend's existing
+/// rolled-back-session recovery transparently opens a new one on the next run.
+async fn rotate_clean_read_only_snapshot(conn: &mut TxnConnection, schema: Option<&str>) -> Result<(), String> {
+    match conn {
+        TxnConnection::Mysql(Some(conn)) => {
+            conn.query_drop("ROLLBACK").await.map_err(|e| format!("ROLLBACK failed: {e}"))?;
+            conn.query_drop("START TRANSACTION").await.map_err(|e| format!("START TRANSACTION failed: {e}"))?;
+            Ok(())
+        }
+        TxnConnection::Postgres(conn) => {
+            conn.execute_typed("ROLLBACK", &[]).await.map_err(|e| format!("ROLLBACK failed: {e}"))?;
+            conn.execute_typed("BEGIN", &[]).await.map_err(|e| format!("BEGIN failed: {e}"))?;
+            if let Some(schema) = schema {
+                db::postgres::set_postgres_search_path(
+                    conn,
+                    schema,
+                    db::postgres::PostgresSearchPathContext::LocalTransaction,
+                    db::connection_timeout(),
+                )
+                .await
+                .map_err(|e| format!("SET search_path failed: {e}"))?;
+            }
+            Ok(())
+        }
+        // Agent and external-driver sessions cannot reopen in place (their
+        // rollback path closes the dedicated session), so they keep the
+        // snapshot semantics; proven-read-only markers for those dialects do
+        // not reach this helper's native variants in practice.
+        _ => Ok(()),
+    }
+}
+
+pub(crate) async fn rollback_manual_txn_connection(conn: &mut TxnConnection) -> Result<(), String> {
     rollback_manual_txn_connection_with_postgres_timeout(conn, None).await
 }
 
@@ -6475,6 +6575,276 @@ pub async fn rollback_manual_transaction(state: &AppState, txn_session_id: &str)
 mod tests {
     use super::*;
     use crate::query_cancel::RunningTaskMetadata;
+
+    mod manual_transaction_snapshot_tests {
+        use super::*;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        struct SnapshotTestConnect {
+            commands: Arc<Mutex<Vec<String>>>,
+            fail_once: Option<&'static str>,
+        }
+
+        impl deadpool_postgres::Connect for SnapshotTestConnect {
+            fn connect(
+                &self,
+                config: &tokio_postgres::Config,
+            ) -> futures::future::BoxFuture<
+                '_,
+                Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), tokio_postgres::Error>,
+            > {
+                let mut config = config.clone();
+                config.user("test").ssl_mode(tokio_postgres::config::SslMode::Disable);
+                let commands = Arc::clone(&self.commands);
+                let mut fail_once = self.fail_once;
+                Box::pin(async move {
+                    let (client_socket, mut server_socket) = tokio::io::duplex(8192);
+                    tokio::spawn(async move {
+                        let startup_length = server_socket.read_u32().await.unwrap();
+                        let mut startup = vec![0; startup_length as usize - 4];
+                        server_socket.read_exact(&mut startup).await.unwrap();
+                        server_socket.write_all(b"R\0\0\0\x08\0\0\0\0Z\0\0\0\x05I").await.unwrap();
+                        let mut statement = String::new();
+                        while let Ok(message_type) = server_socket.read_u8().await {
+                            let length = server_socket.read_u32().await.unwrap();
+                            let mut payload = vec![0; length as usize - 4];
+                            server_socket.read_exact(&mut payload).await.unwrap();
+                            let (response_type, response) = match message_type {
+                                b'P' => {
+                                    statement =
+                                        String::from_utf8(payload.split(|byte| *byte == 0).nth(1).unwrap().to_vec())
+                                            .unwrap();
+                                    (b'1', Vec::new())
+                                }
+                                b'B' => (b'2', Vec::new()),
+                                b'D' => {
+                                    if payload.first() == Some(&b'S') {
+                                        server_socket.write_all(b"t\0\0\0\x06\0\0").await.unwrap();
+                                    }
+                                    (b'n', Vec::new())
+                                }
+                                b'E' => {
+                                    commands.lock().unwrap().push(statement.clone());
+                                    if fail_once == Some(statement.as_str()) {
+                                        fail_once = None;
+                                        (b'E', b"SERROR\0CXX000\0Mtest statement failed\0\0".to_vec())
+                                    } else {
+                                        let tag = if statement.starts_with("UPDATE") {
+                                            "UPDATE 1"
+                                        } else if statement.starts_with("SELECT") {
+                                            "SELECT 0"
+                                        } else {
+                                            statement.as_str()
+                                        };
+                                        (b'C', format!("{tag}\0").into_bytes())
+                                    }
+                                }
+                                b'S' => (b'Z', vec![b'I']),
+                                b'C' => (b'3', Vec::new()),
+                                b'X' => break,
+                                other => panic!("unexpected PostgreSQL message: {other}"),
+                            };
+                            server_socket.write_u8(response_type).await.unwrap();
+                            server_socket.write_u32((response.len() + 4) as u32).await.unwrap();
+                            server_socket.write_all(&response).await.unwrap();
+                        }
+                    });
+                    let (client, connection) = config.connect_raw(client_socket, tokio_postgres::NoTls).await?;
+                    let task = tokio::spawn(async move {
+                        let _ = connection.await;
+                    });
+                    Ok((client, task))
+                })
+            }
+        }
+
+        async fn snapshot_state(
+            fail_once: Option<&'static str>,
+        ) -> (AppState, Arc<Mutex<Vec<String>>>, tempfile::TempDir) {
+            let directory = tempfile::tempdir().unwrap();
+            let state = AppState::new(Storage::open(&directory.path().join("storage.db")).await.unwrap());
+            let config = test_connection_config(DatabaseType::Postgres);
+            state.configs.write().await.insert(config.id.clone(), config);
+            let commands = Arc::new(Mutex::new(Vec::new()));
+            let manager = deadpool_postgres::Manager::from_connect(
+                tokio_postgres::Config::new(),
+                SnapshotTestConnect { commands: Arc::clone(&commands), fail_once },
+                deadpool_postgres::ManagerConfig::default(),
+            );
+            let pool = deadpool_postgres::Pool::builder(manager).max_size(1).build().unwrap();
+            let connection = timeout(Duration::from_secs(5), pool.get()).await.unwrap().unwrap();
+            state.transaction_sessions.write().await.insert(
+                "snapshot".to_string(),
+                TransactionSession {
+                    connection: Arc::new(tokio::sync::Mutex::new(TxnConnection::Postgres(Box::new(connection)))),
+                    pool_key: "conn-1".to_string(),
+                    last_activity: std::time::Instant::now(),
+                    busy: false,
+                    snapshot_rotation_safe: true,
+                    connection_id: "conn-1".to_string(),
+                    database: "test".to_string(),
+                    schema: None,
+                },
+            );
+            (state, commands, directory)
+        }
+
+        async fn execute_snapshot_batch(
+            state: &AppState,
+            sql: &str,
+            classification_sql: Option<&str>,
+        ) -> Result<Vec<ExecuteMultiResult>, String> {
+            timeout(
+                Duration::from_secs(5),
+                execute_in_manual_transaction_with_options(
+                    state,
+                    "snapshot",
+                    sql,
+                    "test",
+                    None,
+                    ManualTransactionExecutionOptions {
+                        classification_sql: classification_sql.map(str::to_string),
+                        ..Default::default()
+                    },
+                ),
+            )
+            .await
+            .expect("manual transaction must not deadlock")
+        }
+
+        #[tokio::test]
+        async fn snapshot_predicate_uses_the_already_held_connection_guard() {
+            let (state, _, _directory) = snapshot_state(None).await;
+            let connection = Arc::clone(&state.transaction_sessions.read().await["snapshot"].connection);
+            let guard = connection.lock().await;
+            assert!(connection.try_lock().is_err());
+            let mut sessions = state.transaction_sessions.write().await;
+            let session = sessions.get_mut("snapshot").unwrap();
+            assert!(session.can_rotate_read_only_snapshot(&guard));
+            session.snapshot_rotation_safe = false;
+            assert!(!session.can_rotate_read_only_snapshot(&guard));
+            session.snapshot_rotation_safe = true;
+            assert!(!session.can_rotate_read_only_snapshot(&TxnConnection::Mysql(None)));
+        }
+
+        #[tokio::test]
+        async fn repeated_reads_rotate_and_no_statement_preserves_clean_history() {
+            let (state, commands, _directory) = snapshot_state(None).await;
+            execute_snapshot_batch(&state, "-- no statement", None).await.unwrap();
+            assert!(commands.lock().unwrap().is_empty());
+            for _ in 0..2 {
+                let results = execute_snapshot_batch(&state, "SELECT 1", Some("SELECT 1")).await.unwrap();
+                assert!(manual_txn_batch_fully_proven_read_only(&results));
+                let sessions = state.transaction_sessions.read().await;
+                assert!(!sessions["snapshot"].busy);
+                assert!(sessions["snapshot"].snapshot_rotation_safe);
+            }
+            assert_eq!(*commands.lock().unwrap(), ["SELECT 1", "ROLLBACK", "BEGIN", "SELECT 1", "ROLLBACK", "BEGIN"]);
+        }
+
+        #[tokio::test]
+        async fn writes_unknown_and_mixed_batches_permanently_prevent_rotation() {
+            for (sql, classification) in [
+                ("UPDATE users SET id = 2", Some("UPDATE users SET id = 2")),
+                ("SELECT 1", None),
+                ("SELECT 1", Some("SELECT unknown_function()")),
+                ("SELECT 1; UPDATE users SET id = 2", Some("SELECT 1; UPDATE users SET id = 2")),
+            ] {
+                let (state, commands, _directory) = snapshot_state(None).await;
+                execute_snapshot_batch(&state, sql, classification).await.unwrap();
+                for _ in 0..2 {
+                    execute_snapshot_batch(&state, "SELECT 1", Some("SELECT 1")).await.unwrap();
+                }
+                {
+                    let sessions = state.transaction_sessions.read().await;
+                    assert!(!sessions["snapshot"].snapshot_rotation_safe);
+                    assert!(!sessions["snapshot"].busy);
+                }
+                assert!(!commands.lock().unwrap().iter().any(|sql| sql == "ROLLBACK" || sql == "BEGIN"));
+                commit_manual_transaction(&state, "snapshot").await.unwrap();
+                assert_eq!(commands.lock().unwrap().last().unwrap(), "COMMIT");
+            }
+        }
+
+        #[tokio::test]
+        async fn unclassified_stream_prevents_later_snapshot_rotation() {
+            let (state, commands, _directory) = snapshot_state(None).await;
+            stream_rows_in_manual_transaction(&state, "snapshot", "SELECT 1", 10, |_| Ok(())).await.unwrap();
+            execute_snapshot_batch(&state, "SELECT 1", Some("SELECT 1")).await.unwrap();
+            assert!(!state.transaction_sessions.read().await["snapshot"].snapshot_rotation_safe);
+            assert_eq!(*commands.lock().unwrap(), ["SELECT 1", "SELECT 1"]);
+        }
+
+        #[tokio::test]
+        async fn rotation_failure_removes_session_without_failing_successful_read() {
+            for failure in ["ROLLBACK", "BEGIN"] {
+                let (state, commands, _directory) = snapshot_state(Some(failure)).await;
+                let results = execute_snapshot_batch(&state, "SELECT 1", Some("SELECT 1")).await.unwrap();
+                assert!(manual_txn_batch_fully_proven_read_only(&results));
+                assert!(!state.transaction_sessions.read().await.contains_key("snapshot"));
+                let expected = if failure == "BEGIN" {
+                    vec!["SELECT 1", "ROLLBACK", "BEGIN", "ROLLBACK"]
+                } else {
+                    vec!["SELECT 1", "ROLLBACK", "ROLLBACK"]
+                };
+                assert_eq!(*commands.lock().unwrap(), expected);
+            }
+        }
+
+        #[tokio::test]
+        async fn failed_batch_after_write_keeps_existing_rollback_cleanup() {
+            let (state, commands, _directory) = snapshot_state(Some("SELECT 1")).await;
+            execute_snapshot_batch(&state, "UPDATE users SET id = 2", Some("UPDATE users SET id = 2")).await.unwrap();
+            let error = execute_snapshot_batch(&state, "SELECT 1", Some("SELECT 1")).await.unwrap_err();
+            assert!(error.contains("manual transaction was rolled back"));
+            assert!(!state.transaction_sessions.read().await.contains_key("snapshot"));
+            assert_eq!(*commands.lock().unwrap(), ["UPDATE users SET id = 2", "SELECT 1", "ROLLBACK"]);
+        }
+
+        #[tokio::test]
+        async fn cancelled_stream_after_write_keeps_existing_rollback_cleanup() {
+            let (state, commands, _directory) = snapshot_state(None).await;
+            execute_snapshot_batch(&state, "UPDATE users SET id = 2", Some("UPDATE users SET id = 2")).await.unwrap();
+            let cancel = CancellationToken::new();
+            cancel.cancel();
+            let result =
+                stream_rows_in_manual_transaction_with_cancel(&state, "snapshot", "SELECT 1", 10, Some(cancel), |_| {
+                    Ok(())
+                })
+                .await;
+            assert!(result.is_err());
+            assert!(!state.transaction_sessions.read().await.contains_key("snapshot"));
+            let commands = commands.lock().unwrap();
+            assert_eq!(commands.last().unwrap(), "ROLLBACK");
+            assert!(!commands.iter().any(|sql| sql == "BEGIN"));
+        }
+    }
+
+    #[test]
+    fn manual_txn_batch_proven_read_only_requires_non_empty_all_proven_results() {
+        // Empty batch (e.g. comments-only script) must not rotate: there is no
+        // snapshot to renew and rotating would churn a BEGIN for nothing.
+        assert!(!manual_txn_batch_fully_proven_read_only(&[]));
+
+        let unproven =
+            vec![ExecuteMultiResult::success_with_optional_server_large_values(empty_query_result(1), false)];
+        assert!(!manual_txn_batch_fully_proven_read_only(&unproven));
+
+        let proven = unproven
+            .clone()
+            .into_iter()
+            .map(|result| result.with_manual_transaction_proven_read_only())
+            .collect::<Vec<_>>();
+        assert!(manual_txn_batch_fully_proven_read_only(&proven));
+
+        // One write statement anywhere in the batch keeps the transaction.
+        let mixed = vec![
+            ExecuteMultiResult::success_with_optional_server_large_values(empty_query_result(1), false)
+                .with_manual_transaction_proven_read_only(),
+            ExecuteMultiResult::success_with_optional_server_large_values(empty_query_result(1), false),
+        ];
+        assert!(!manual_txn_batch_fully_proven_read_only(&mixed));
+    }
 
     #[test]
     fn redshift_queries_prefer_text_protocol() {
@@ -9454,6 +9824,7 @@ for line in sys.stdin:
                 pool_key: pool_key.to_string(),
                 last_activity: std::time::Instant::now(),
                 busy: false,
+                snapshot_rotation_safe: true,
                 connection_id: "jdbc-conn".to_string(),
                 database: "dbx_test".to_string(),
                 schema: None,
@@ -10649,6 +11020,7 @@ for line in sys.stdin:
                 pool_key: "agent-conn".to_string(),
                 last_activity: std::time::Instant::now(),
                 busy: false,
+                snapshot_rotation_safe: true,
                 connection_id: "agent-conn".to_string(),
                 database: "ORCL".to_string(),
                 schema: None,

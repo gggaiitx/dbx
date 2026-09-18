@@ -3501,6 +3501,7 @@ async fn list_tables_filtered_by_kind(
         .map(|row| TableInfo {
             name: pg_row_try_string(row, 0),
             table_type: pg_row_try_string(row, 1),
+            valid: None,
             comment: row.try_get::<_, Option<String>>(2).ok().flatten().filter(|s| !s.is_empty()),
             parent_schema: row.try_get::<_, Option<String>>(3).ok().flatten().filter(|s| !s.is_empty()),
             parent_name: row.try_get::<_, Option<String>>(4).ok().flatten().filter(|s| !s.is_empty()),

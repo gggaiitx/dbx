@@ -269,9 +269,16 @@ pub struct TransactionSession {
     pub pool_key: String,
     pub last_activity: std::time::Instant,
     pub busy: bool,
+    pub snapshot_rotation_safe: bool,
     pub connection_id: String,
     pub database: String,
     pub schema: Option<String>,
+}
+
+impl TransactionSession {
+    pub fn can_rotate_read_only_snapshot(&self, conn: &TxnConnection) -> bool {
+        self.snapshot_rotation_safe && matches!(conn, TxnConnection::Mysql(Some(_)) | TxnConnection::Postgres(_))
+    }
 }
 
 macro_rules! agent_connection_pool_database_type {
@@ -1553,7 +1560,7 @@ impl AppState {
 
     pub async fn external_driver_pool(&self, driver_id: &str, config: &ConnectionConfig) -> Result<PoolKind, String> {
         let env = self.external_driver_runtime_env(driver_id)?;
-        let session = self.plugins.start_driver_session_with_env(driver_id, env).await?;
+        let session = self.plugins.start_driver_session_for_connection(driver_id, env, &config.name).await?;
         let params = serde_json::json!({ "connection": config });
         session
             .invoke_with_timeout::<serde_json::Value>("connect", params, Some(external_driver_connect_timeout(config)))
@@ -5018,15 +5025,43 @@ impl AppState {
     }
 
     pub async fn remove_connection_pools(&self, connection_id: &str) {
+        self.rollback_manual_transaction_sessions(connection_id).await;
         let removed = self.drain_connection_pools(connection_id).await;
         self.clear_metadata_gates_for_connection(connection_id).await;
         self.pool_routing_control().close_removed(removed).await;
     }
 
     pub async fn remove_connection_pools_detached(&self, connection_id: &str) {
+        self.rollback_manual_transaction_sessions(connection_id).await;
         let removed = self.drain_connection_pools(connection_id).await;
         self.clear_metadata_gates_for_connection(connection_id).await;
         self.pool_routing_control().close_removed_in_background(removed);
+    }
+
+    /// Close and roll back every manual-transaction session of a connection
+    /// before its pools are drained. The transaction sessions hold dedicated
+    /// connections outside the pools being removed; without this the session
+    /// map survives a user disconnect with open transactions, and a later
+    /// reconnect/execution could observe or reuse the stale snapshot state.
+    /// Errors are logged and the session is dropped regardless: pool removal
+    /// is already the caller's decision.
+    async fn rollback_manual_transaction_sessions(&self, connection_id: &str) {
+        let sessions: Vec<(String, TransactionSession)> = {
+            let mut map = self.transaction_sessions.write().await;
+            let keys: Vec<String> = map
+                .iter()
+                .filter(|(_, session)| session.connection_id == connection_id)
+                .map(|(id, _)| id.clone())
+                .collect();
+            keys.into_iter().filter_map(|id| map.remove(&id).map(|session| (id, session))).collect()
+        };
+        for (session_id, session) in sessions {
+            let mut conn = session.connection.lock().await;
+            let outcome = crate::query::rollback_manual_txn_connection(&mut conn).await;
+            if let Err(error) = outcome {
+                log::warn!("[connection:manual-txn:rollback-on-disconnect] session={} error={}", session_id, error);
+            }
+        }
     }
 
     pub async fn invalidate_agent_pool_if_current(

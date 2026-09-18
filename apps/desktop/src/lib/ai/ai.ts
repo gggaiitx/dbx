@@ -56,6 +56,22 @@ export function isValidActionForMode(action: AiAction, mode: AiAssistantMode): b
   return (mode === "agent" ? AGENT_ACTIONS : ASK_ACTIONS).includes(action);
 }
 
+/**
+ * UI-level picker selection: every concrete transport action plus the `auto`
+ * entry that lets the assistant pick one of them at send time (#9118).
+ *
+ * `auto` deliberately stays OUT of `AiAction`, `ASK_ACTIONS`/`AGENT_ACTIONS` and
+ * `isValidActionForMode`: it is resolved by `aiIntentRouter` before
+ * `buildAgentRequest`/`runAgentStream` run, so an "auto" string can never reach
+ * `AiTaskContract.action` — the backend interpolates that value into its system
+ * prompt and uses it for `validate_final_answer`/contract repair.
+ */
+export type AiActionSelection = AiAction | "auto";
+
+export function isAutoActionSelection(selection: AiActionSelection): selection is "auto" {
+  return selection === "auto";
+}
+
 function isChineseLocale(locale: Locale): boolean {
   return locale === "zh-CN" || locale === "zh-TW";
 }

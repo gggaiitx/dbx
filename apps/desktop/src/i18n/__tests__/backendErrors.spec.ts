@@ -61,6 +61,22 @@ const WINDOWS_JRE_REMOVE_ERROR = [
 // key and params it must resolve to.
 const CASES: { name: string; message: string; key: string; params?: Record<string, string> }[] = [
   {
+    name: "plugin update requires closing related connections",
+    message: "Plugin update blocked by active connections: Production S3, Local storage",
+    key: "pluginPlatform.updateBlockedByConnections",
+    params: { labels: "Production S3, Local storage" },
+  },
+  {
+    name: "plugin update waits for active operations",
+    message: "Plugin update blocked by active operations. Please wait for them to finish.",
+    key: "pluginPlatform.updateBlockedByOperations",
+  },
+  {
+    name: "connection admission waits for plugin update",
+    message: "Plugin update is in progress. Please try again after it finishes.",
+    key: "pluginPlatform.updateInProgress",
+  },
+  {
     name: "Nacos ordinary user must configure managed namespaces when namespace discovery is forbidden",
     message: "Failed to list Nacos namespaces: NACOS_ERROR[v3ManagedNamespacesRequired]: access denied",
     key: "nacos.nacosManagedNamespacesRequired",
@@ -452,6 +468,26 @@ describe("backend error translation", () => {
     };
 
     expect(translateBackendError(t, error, "ClickHouse error: table analytics.events does not exist")).toBe(`${t("backendErrors.legacy")}\n\nClickHouse error: table analytics.events does not exist`);
+  });
+
+  test("renders plugin signature failures without exposing the JSON error envelope", () => {
+    const detail = "Plugin package is signed by untrusted key 'dbx-store-release-2026'";
+    const error = JSON.stringify({
+      version: 1,
+      code: "DBX-LEGACY-0001",
+      messageKey: "backendErrors.legacy",
+      messageParams: {},
+      source: "legacyBackend",
+      origin: { subsystem: "backend", adapter: "legacy" },
+      operationOutcome: "unknown",
+      detail,
+    });
+
+    for (const locale of ["zh-CN", "en"] as const) {
+      const t = translatorFor(locale);
+      expect(translateBackendError(t, error)).toBe(`${t("backendErrors.legacy")}\n\n${detail}`);
+      expect(translateBackendError(t, new Error(error))).toBe(`${t("backendErrors.legacy")}\n\n${detail}`);
+    }
   });
 
   test("does not append the generic transport fallback to a structured error", () => {

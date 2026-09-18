@@ -21,6 +21,7 @@ import { fetchSqlFileTargetOptions } from "@/composables/useDatabaseOptions";
 import { requiresSqlFileTargetDatabaseSelection, supportsConnectionLevelDatabaseBootstrap } from "@/lib/connection/connectionLevelDatabaseBootstrap";
 import { cancelSqlFileExecution, executeSqlFiles, inspectSqlFileTables, listenSqlFileProgress, previewSqlFile, type SqlFilePreview, type SqlFileProgress, type SqlFileStatus, type SqlFileTable } from "@/lib/backend/api";
 import { buildDisplayFileNames, tooltipText as computeTooltipText } from "./sqlFilePreviewLabel";
+import SqlFileProgressIndicator from "./SqlFileProgressIndicator.vue";
 import { useExportTracker, type ExportTask } from "@/composables/useExportTracker";
 import { translateBackendError } from "@/i18n/backend-errors";
 import { Check, CheckSquare, ChevronRight, FileCode, FolderOpen, Loader2, Play, Square, X } from "@lucide/vue";
@@ -222,14 +223,6 @@ const statusIcon = computed(() => {
   return FileCode;
 });
 
-const progressPercent = computed(() => {
-  if (!progress.value) return 0;
-  if (terminalStatus.value === "done") return 100;
-  const attempted = progress.value.successCount + progress.value.failureCount;
-  const current = Math.max(progress.value.statementIndex, attempted);
-  if (current <= 0) return running.value ? 8 : 0;
-  return Math.min(95, Math.max(8, Math.round((attempted / current) * 100)));
-});
 const sqlFileFailures = computed(() => activeExecutionTask.value?.sqlFileFailures ?? []);
 const sqlFileFailureCount = computed(() => sqlFileFailures.value.length + (activeExecutionTask.value?.sqlFileFailuresOmitted ?? 0));
 const unlistedTerminalError = computed(() => {
@@ -826,9 +819,7 @@ watch(
             </span>
           </div>
 
-          <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
-            <div class="h-full rounded-full transition-[width] duration-300" :class="terminalStatus === 'error' ? 'bg-destructive' : terminalStatus === 'cancelled' ? 'bg-yellow-500' : 'bg-primary'" :style="{ width: `${progressPercent}%` }" />
-          </div>
+          <SqlFileProgressIndicator :status="terminalStatus" :bytes-read="progress?.bytesRead" :total-bytes="progress?.totalBytes" :phase="progress?.phase" />
 
           <div v-if="running && previews.length > 1 && currentFileIndex >= 0" class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <FileCode class="w-3.5 h-3.5 shrink-0" />

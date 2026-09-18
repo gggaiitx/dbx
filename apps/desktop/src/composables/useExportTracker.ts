@@ -48,6 +48,9 @@ export interface ExportTask {
   failureCount?: number;
   affectedRows?: number;
   elapsedMs?: number;
+  bytesRead?: number;
+  totalBytes?: number;
+  sqlFilePhase?: api.SqlFileProgress["phase"];
   startedAt?: number;
   finishedAt?: number;
   statementSummary?: string;
@@ -661,9 +664,12 @@ export function useExportTracker() {
     task.failureCount = progress.failureCount;
     task.affectedRows = progress.affectedRows;
     task.elapsedMs = progress.elapsedMs;
+    task.bytesRead = progress.bytesRead ?? task.bytesRead;
+    task.totalBytes = progress.totalBytes ?? task.totalBytes;
+    task.sqlFilePhase = progress.phase ?? task.sqlFilePhase;
     task.statementSummary = progress.statementSummary;
     task.rowsExported = progress.successCount + progress.failureCount;
-    task.totalRows = Math.max(progress.statementIndex, progress.successCount + progress.failureCount) || null;
+    task.totalRows = null;
   }
 
   function updateDataTransferTask(transferId: string, progress: api.TransferProgress) {

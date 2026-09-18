@@ -97,11 +97,7 @@ fn matches_in_text(
         }
         let line_bytes = line.as_bytes();
         let mut search_from = 0;
-        loop {
-            let found = match matcher.find_at(line_bytes, search_from) {
-                Ok(Some(m)) => m,
-                _ => break,
-            };
+        while let Ok(Some(found)) = matcher.find_at(line_bytes, search_from) {
             let (start, end) = (found.start(), found.end());
             if start >= line_bytes.len() {
                 break;
